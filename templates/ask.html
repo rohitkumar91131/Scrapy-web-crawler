@@ -9,10 +9,15 @@
 <body>
   <nav class="navbar">
     <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <a href="/results">Results</a>
-    <a href="/fact-check">🤖 Fact Check</a>
-    <a href="/site-map">🗺 Site Map</a>
-    <a href="/ask" class="active">🧠 Ask AI</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="nav-links">
+      <a href="/results">Results</a>
+      <a href="/fact-check">🤖 Fact Check</a>
+      <a href="/site-map">🗺 Site Map</a>
+      <a href="/ask" class="active">🧠 Ask AI</a>
+    </div>
   </nav>
 
   <main class="container">
@@ -68,7 +73,7 @@
     </div><!-- /ask-layout -->
 
     <p class="muted" style="font-size:0.82rem;margin-top:0.75rem;text-align:center;">
-      ℹ️ Answers are cached in <code>qa_cache.json</code>. Clear the file to ask fresh.
+      ℹ️ Answers are cached in <code>qa_cache.json</code>. Delete that file to clear the cache and ask fresh questions.
     </p>
   </main>
 
@@ -177,6 +182,10 @@
         questionInput.focus();
       }
     }
+
+    document.getElementById('nav-toggle').addEventListener('click', function () {
+      document.getElementById('nav-links').classList.toggle('open');
+    });
   </script>
 </body>
 </html>

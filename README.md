@@ -1,18 +1,22 @@
 # Scrapy Web Crawler
 
-A full-stack Python web application that crawls a website using **Scrapy** and displays the results in a clean web dashboard built with **FastAPI** and **Jinja2 templates**.
+A full-stack Python web application that crawls a website using **Scrapy** (with optional **Playwright** JavaScript rendering) and displays the results in a clean, **mobile-responsive** dashboard built with **FastAPI** and **Jinja2 templates**.
 
 ---
 
 ## Features
 
 - Enter any URL and crawl all internal pages of that domain
+- **JavaScript-rendered pages** – automatically detects JS-heavy sites and switches to Playwright (Chromium) rendering
 - Extracts: page URL, title, meta description, headings (H1/H2/H3), text content, internal links, and crawl timestamp
 - Results stored in `results.json` (no database required)
 - Searchable, paginated results table
 - Loading indicator with live status polling while a crawl is in progress
 - Page detail view showing headings, full text, and all internal links
-- **AI Fact Checker** – uses the Gemini API to verify factual claims extracted from crawled pages
+- **Interactive Site Map** – force-directed graph of page relationships
+- **AI Fact Checker** – uses Gemini AI to verify factual claims extracted from crawled pages
+- **AI Knowledge Query** – chat-style interface to ask questions about the crawled website; powered by Gemini AI
+- **Fully responsive** – works on desktop, tablet, and mobile with a hamburger navigation menu
 
 ---
 
@@ -20,20 +24,25 @@ A full-stack Python web application that crawls a website using **Scrapy** and d
 
 ```
 project/
-├── app.py                # FastAPI application
+├── app.py                   # FastAPI application
 ├── crawler/
 │   ├── __init__.py
-│   └── spider.py         # Scrapy spider
+│   └── spider.py            # Scrapy + Playwright spider
 ├── templates/
-│   ├── index.html        # Home page
-│   ├── results.html      # Results list
-│   ├── page.html         # Page detail view
-│   └── factcheck.html    # AI Fact-Check dashboard
+│   ├── index.html           # Home page
+│   ├── results.html         # Results list
+│   ├── page.html            # Page detail view
+│   ├── factcheck.html       # AI Fact-Check dashboard
+│   ├── sitemap.html         # Interactive site graph
+│   └── ask.html             # AI Knowledge Query chat UI
 ├── static/
-│   └── style.css         # Stylesheet
-├── results.json          # Crawl output (auto-generated)
-├── factcheck_results.json# Fact-check cache (auto-generated)
+│   └── style.css            # Responsive stylesheet
+├── results.json             # Crawl output (auto-generated)
+├── knowledge_index.json     # Page summaries index (auto-generated)
+├── qa_cache.json            # AI Q&A cache (auto-generated)
+├── factcheck_results.json   # Fact-check cache (auto-generated)
 ├── requirements.txt
+├── Dockerfile
 └── README.md
 ```
 
@@ -57,17 +66,18 @@ cd Scrapy-web-crawler
 python -m venv venv
 source venv/bin/activate   # On Windows: venv\Scripts\activate
 
-# 3. Install dependencies
+# 3. Install Python dependencies
 pip install -r requirements.txt
+
+# 4. Install Playwright's Chromium browser
+playwright install
 ```
 
 ---
 
 ## Environment Variables
 
-### AI Fact Checker (Gemini API)
-
-The Fact-Check feature requires a Google AI Studio API key:
+### Gemini AI (required for Fact Check and Ask AI features)
 
 ```bash
 export GOOGLE_AI_STUDIO_API_KEY=your_api_key
@@ -75,11 +85,17 @@ export GOOGLE_AI_STUDIO_API_KEY=your_api_key
 
 Obtain your key at [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
 
-> **Note:** The Fact-Check page is accessible without the key, but submitting a check will return an error until the variable is set.
+> **Note:** The Fact-Check and Ask AI pages are accessible without the key, but submitting a request will return an error until the variable is set.
 
 ---
 
 ## Running the Application
+
+```bash
+python app.py
+```
+
+Or with uvicorn directly:
 
 ```bash
 uvicorn app:app --reload
@@ -94,11 +110,26 @@ Then open your browser and navigate to: **http://localhost:8000**
 1. Open **http://localhost:8000** in your browser.
 2. Enter a website URL in the input box (e.g. `https://example.com`).
 3. Click **Crawl Website**.
-4. You will be redirected to the Results page, which shows a loading indicator while the crawl is running.
-5. Once the crawl finishes, the results table is displayed with URL, title, link count, and crawl time.
-6. Use the **Search** box to filter results by URL, title, or page content.
-7. Click **View** on any row to open the page detail view (headings, full text, internal links).
-8. Click **🤖 Fact Check** in the navbar, select a crawled URL, and click **Run Fact Check** to see Gemini AI's analysis of the page's factual claims.
+4. The Results page shows a loading indicator while the crawl runs.
+5. Once finished, browse, search, and paginate through all crawled pages.
+6. Click **View** on any row to open the page detail view.
+7. Click **🤖 Fact Check** to verify factual claims on any crawled page using Gemini AI.
+8. Click **🗺 Site Map** for an interactive force-directed graph of the site structure.
+9. Click **🧠 Ask AI** to ask natural-language questions about the crawled website content.
+
+---
+
+## JavaScript Rendering (Playwright)
+
+The spider first fetches pages with plain HTTP for performance. If the response contains a JavaScript wall (e.g. "Enable JavaScript to continue") or has very little visible text, the spider automatically switches to **Playwright Chromium** rendering and re-fetches the page (and all subsequent internal links) with full JS execution and `networkidle` wait.
+
+No configuration needed – the detection is automatic.
+
+---
+
+## AI Knowledge Query (`/ask`)
+
+After every successful crawl the spider builds `knowledge_index.json` — a structured index of each page's URL, title, summary (generated by Gemini), and content. The `/ask` endpoint loads this index, sends it as context to Gemini together with the user's question, and returns a concise answer along with the source page URLs. Answers are cached in `qa_cache.json` to avoid repeated API calls.
 
 ---
 
@@ -112,6 +143,7 @@ The spider uses the following default settings (adjustable in `crawler/spider.py
 | `CLOSESPIDER_PAGECOUNT` | 100 | Maximum pages per crawl |
 | `ROBOTSTXT_OBEY` | True | Respect robots.txt |
 | `DOWNLOAD_DELAY` | 0.5 s | Delay between requests |
+| `PLAYWRIGHT_BROWSER_TYPE` | chromium | Browser used for JS rendering |
 
 ---
 
@@ -120,11 +152,12 @@ The spider uses the following default settings (adjustable in `crawler/spider.py
 | Layer | Technology |
 |---|---|
 | Crawler | [Scrapy](https://scrapy.org/) |
+| JS Rendering | [Playwright](https://playwright.dev/python/) via [scrapy-playwright](https://github.com/scrapy-plugins/scrapy-playwright) |
 | Backend | [FastAPI](https://fastapi.tiangolo.com/) |
 | Templates | [Jinja2](https://jinja.palletsprojects.com/) |
 | Server | [Uvicorn](https://www.uvicorn.org/) |
-| AI Fact Checker | [Gemini API (google-genai)](https://ai.google.dev/) |
-| Storage | JSON files (`results.json`, `factcheck_results.json`) |
+| AI | [Gemini API (google-genai)](https://ai.google.dev/) |
+| Storage | JSON files |
 
 ---
 
@@ -144,10 +177,13 @@ docker run -p 10000:10000 -e GOOGLE_AI_STUDIO_API_KEY=your_api_key scrapy-web-cr
 
 Then open your browser and navigate to: **http://localhost:10000**
 
+> The Dockerfile automatically installs Playwright's Chromium binary and all required system libraries.
+
 ### Deploy on Render
 
 1. Push the repository (including the `Dockerfile`) to GitHub.
 2. Create a new **Web Service** on [Render](https://render.com) and connect your repository.
 3. Render will detect the `Dockerfile` automatically and build the image.
-4. Set the **Port** to `10000` in the Render service settings (or rely on the `EXPOSE 10000` directive).
+4. Set the `GOOGLE_AI_STUDIO_API_KEY` environment variable in the Render service settings.
 5. Deploy — Render will run the container using the `CMD` defined in the `Dockerfile`.
+

@@ -9,10 +9,16 @@
 <body>
   <nav class="navbar">
     <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <a href="/">Home</a>
-    <a href="/results">Results</a>
-    <a href="/fact-check">🤖 Fact Check</a>
-    <a href="/site-map">🗺 Site Map</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="nav-links">
+      <a href="/">Home</a>
+      <a href="/results">Results</a>
+      <a href="/fact-check">🤖 Fact Check</a>
+      <a href="/site-map">🗺 Site Map</a>
+      <a href="/ask">🧠 Ask AI</a>
+    </div>
   </nav>
 
   <main class="container">
@@ -105,5 +111,10 @@
   <footer class="footer">
     <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Jinja2</strong></p>
   </footer>
+  <script>
+    document.getElementById('nav-toggle').addEventListener('click', function () {
+      document.getElementById('nav-links').classList.toggle('open');
+    });
+  </script>
 </body>
 </html>

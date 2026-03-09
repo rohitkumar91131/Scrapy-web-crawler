@@ -1,10 +1,40 @@
 import scrapy
+from scrapy_playwright.page import PageMethod
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
 
+# Phrases that indicate a page requires JavaScript to render
+_JS_WALL_PHRASES = (
+    "enable javascript",
+    "javascript required",
+    "please enable javascript",
+    "javascript is required",
+    "you need to enable javascript",
+)
+
+
+def _page_needs_js(response) -> bool:
+    """Return True if the response looks like it needs JavaScript to render."""
+    text_lower = response.text.lower()
+    for phrase in _JS_WALL_PHRASES:
+        if phrase in text_lower:
+            return True
+    # Very short visible text in a large HTML response is a strong JS indicator
+    visible_text = " ".join(response.css("body ::text").getall()).strip()
+    if len(visible_text) < 100 and len(response.text) > 2000:
+        return True
+    return False
+
+
 class WebCrawlerSpider(scrapy.Spider):
-    """Scrapy spider that crawls a website and extracts page data."""
+    """Scrapy spider that crawls a website and extracts page data.
+
+    Automatically switches to Playwright-powered rendering when the start URL
+    returns a page that requires JavaScript (e.g. "Enable JS to continue" walls).
+    All subsequent internal links are then fetched with the same mode so the
+    full site is rendered consistently.
+    """
 
     name = "web_crawler"
 
@@ -15,7 +45,20 @@ class WebCrawlerSpider(scrapy.Spider):
         "DOWNLOAD_DELAY": 0.5,
         "LOG_LEVEL": "WARNING",
         "HTTPERROR_ALLOW_ALL": True,
+        # Playwright download handlers (activated per-request via meta["playwright"])
+        "DOWNLOAD_HANDLERS": {
+            "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+            "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+        },
+        "TWISTED_REACTOR": "twisted.internet.asyncioreactor.AsyncioSelectorReactor",
+        "PLAYWRIGHT_BROWSER_TYPE": "chromium",
+        "PLAYWRIGHT_LAUNCH_OPTIONS": {"headless": True},
     }
+
+    # Playwright page methods applied when JS rendering is needed
+    _PLAYWRIGHT_METHODS = [
+        PageMethod("wait_for_load_state", "networkidle"),
+    ]
 
     def __init__(self, start_url=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -27,6 +70,32 @@ class WebCrawlerSpider(scrapy.Spider):
         self.start_urls = [start_url]
         parsed = urlparse(start_url)
         self.allowed_domain = parsed.netloc.lower()
+        # Set to True once JS rendering is detected on the first page
+        self._use_playwright = False
+
+    def start_requests(self):
+        """Yield the initial request using plain HTTP (no Playwright overhead)."""
+        for url in self.start_urls:
+            yield scrapy.Request(url, callback=self.parse, errback=self.errback)
+
+    def errback(self, failure):
+        """Log request errors without crashing the spider."""
+        import logging
+        logging.getLogger(__name__).warning("Request failed: %s", failure)
+
+    def _make_request(self, url):
+        """Build a follow-up request, using Playwright only when required."""
+        if self._use_playwright:
+            return scrapy.Request(
+                url,
+                callback=self.parse,
+                errback=self.errback,
+                meta={
+                    "playwright": True,
+                    "playwright_page_methods": self._PLAYWRIGHT_METHODS,
+                },
+            )
+        return scrapy.Request(url, callback=self.parse, errback=self.errback)
 
     def parse(self, response):
         """Parse each page and yield extracted data."""
@@ -38,6 +107,21 @@ class WebCrawlerSpider(scrapy.Spider):
         url = response.url
         parsed_url = urlparse(url)
         if parsed_url.netloc.lower() != self.allowed_domain:
+            return
+
+        # On the first plain request, detect JS-heavy pages and re-fetch with Playwright
+        if not self._use_playwright and _page_needs_js(response):
+            self._use_playwright = True
+            yield scrapy.Request(
+                url,
+                callback=self.parse,
+                errback=self.errback,
+                dont_filter=True,
+                meta={
+                    "playwright": True,
+                    "playwright_page_methods": self._PLAYWRIGHT_METHODS,
+                },
+            )
             return
 
         title = (response.css("title::text").get("") or "").strip()
@@ -84,7 +168,7 @@ class WebCrawlerSpider(scrapy.Spider):
         for link in links_to_follow:
             if link not in seen:
                 seen.add(link)
-                yield response.follow(link, callback=self.parse)
+                yield self._make_request(link)
 
         yield {
             "page_url": url,
