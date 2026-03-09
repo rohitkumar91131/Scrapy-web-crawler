@@ -12,6 +12,7 @@ A full-stack Python web application that crawls a website using **Scrapy** and d
 - Searchable, paginated results table
 - Loading indicator with live status polling while a crawl is in progress
 - Page detail view showing headings, full text, and all internal links
+- **AI Fact Checker** – uses the Gemini API to verify factual claims extracted from crawled pages
 
 ---
 
@@ -26,10 +27,12 @@ project/
 ├── templates/
 │   ├── index.html        # Home page
 │   ├── results.html      # Results list
-│   └── page.html         # Page detail view
+│   ├── page.html         # Page detail view
+│   └── factcheck.html    # AI Fact-Check dashboard
 ├── static/
 │   └── style.css         # Stylesheet
 ├── results.json          # Crawl output (auto-generated)
+├── factcheck_results.json# Fact-check cache (auto-generated)
 ├── requirements.txt
 └── README.md
 ```
@@ -60,6 +63,22 @@ pip install -r requirements.txt
 
 ---
 
+## Environment Variables
+
+### AI Fact Checker (Gemini API)
+
+The Fact-Check feature requires a Google AI Studio API key:
+
+```bash
+export GOOGLE_AI_STUDIO_API_KEY=your_api_key
+```
+
+Obtain your key at [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+
+> **Note:** The Fact-Check page is accessible without the key, but submitting a check will return an error until the variable is set.
+
+---
+
 ## Running the Application
 
 ```bash
@@ -79,6 +98,7 @@ Then open your browser and navigate to: **http://localhost:8000**
 5. Once the crawl finishes, the results table is displayed with URL, title, link count, and crawl time.
 6. Use the **Search** box to filter results by URL, title, or page content.
 7. Click **View** on any row to open the page detail view (headings, full text, internal links).
+8. Click **🤖 Fact Check** in the navbar, select a crawled URL, and click **Run Fact Check** to see Gemini AI's analysis of the page's factual claims.
 
 ---
 
@@ -103,7 +123,8 @@ The spider uses the following default settings (adjustable in `crawler/spider.py
 | Backend | [FastAPI](https://fastapi.tiangolo.com/) |
 | Templates | [Jinja2](https://jinja.palletsprojects.com/) |
 | Server | [Uvicorn](https://www.uvicorn.org/) |
-| Storage | JSON file (`results.json`) |
+| AI Fact Checker | [Gemini API (google-genai)](https://ai.google.dev/) |
+| Storage | JSON files (`results.json`, `factcheck_results.json`) |
 
 ---
 
@@ -118,7 +139,7 @@ docker build -t scrapy-web-crawler .
 ### Run the container locally
 
 ```bash
-docker run -p 10000:10000 scrapy-web-crawler
+docker run -p 10000:10000 -e GOOGLE_AI_STUDIO_API_KEY=your_api_key scrapy-web-crawler
 ```
 
 Then open your browser and navigate to: **http://localhost:10000**

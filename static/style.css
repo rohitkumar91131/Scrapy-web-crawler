@@ -416,3 +416,82 @@ ul { list-style: none; }
   border-top: 1px solid var(--border);
   margin-top: auto;
 }
+
+/* =========================================================
+   Fact-check dashboard
+   ========================================================= */
+.factcheck-card { max-width: 640px; }
+
+/* Verdict badges */
+.fc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fc-badge-true      { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.fc-badge-false     { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.fc-badge-uncertain { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+
+/* Summary stat grid */
+.fc-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.fc-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.fc-stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 0.3rem;
+}
+
+.fc-stat-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.fc-stat-true     { border-top: 4px solid #16a34a; }
+.fc-stat-false    { border-top: 4px solid #dc2626; }
+.fc-stat-uncertain{ border-top: 4px solid #ca8a04; }
+.fc-stat-score    { border-top: 4px solid var(--brand); }
+
+.fc-stat-true     .fc-stat-value { color: #15803d; }
+.fc-stat-false    .fc-stat-value { color: #b91c1c; }
+.fc-stat-uncertain .fc-stat-value { color: #854d0e; }
+.fc-stat-score    .fc-stat-value { color: var(--brand); }
+
+/* Fact-check table cells */
+.fc-claim-cell { max-width: 220px; font-size: 0.87rem; }
+.fc-info-cell  { max-width: 200px; font-size: 0.87rem; }
+.fc-expl-cell  { max-width: 240px; font-size: 0.82rem; }
+.fc-conf-cell  { min-width: 100px; }
+
+/* Confidence bar */
+.fc-score-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.fc-score-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
