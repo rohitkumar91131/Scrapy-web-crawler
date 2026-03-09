@@ -1,720 +1,210 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Site Map – Scrapy Web Crawler</title>
-  <link rel="stylesheet" href="/static/style.css" />
-  <style>
-    /* ── Override base styles for dark canvas page ─────────────── */
-    body { background: #0f1117; color: #e2e8f0; }
+{% extends "_base.html" %}
+{% block title %}Site Map – Scrapy Crawler{% endblock %}
 
-    .navbar {
-      background: #1a1d2e;
-      border-bottom: 1px solid #2d3152;
-    }
-    .navbar a          { color: #a5b4fc; }
-    .navbar a:hover,
-    .navbar a.active   { color: #fff; opacity: 1; }
-    .navbar .brand     { color: #fff !important; opacity: 1 !important; }
-    .nav-toggle span   { background: #a5b4fc; }
-    @media (max-width: 768px) {
-      .nav-links a { border-top-color: rgba(165,180,252,0.15); }
-    }
+{% block head %}
+<style>
+  #sm-wrap {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 56px);
+    background: #0f1117;
+  }
+  #sm-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.55rem 1rem;
+    background: #13162a;
+    border-bottom: 1px solid #1e2245;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+  #sm-toolbar h1 { font-size: 1rem; font-weight: 700; color: #a5b4fc; margin: 0; }
+  .sm-controls { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+  .sm-btn {
+    padding: 0.28rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid #3730a3;
+    background: #1e2045;
+    color: #a5b4fc;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .sm-btn:hover { background: #3730a3; color: #fff; }
+  #sm-stats { color: #475569; font-size: 0.78rem; margin-left: 0.5rem; }
+  #canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+  #graph-canvas { display: block; cursor: grab; touch-action: none; }
+  #graph-canvas.dragging-node  { cursor: grabbing; }
+  #graph-canvas.dragging-canvas { cursor: grabbing; }
+  #empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; gap: 0.75rem; color: #475569;
+  }
+  #empty-state .empty-icon { font-size: 3rem; }
+  #empty-state p { font-size: 0.9rem; }
+  #empty-state a { color: #818cf8; }
+  #node-panel {
+    position: absolute; top: 12px; right: 12px; width: 290px;
+    background: #1a1d2e; border: 1px solid #2d3152; border-radius: 10px;
+    padding: 1rem; font-size: 0.83rem; display: none; z-index: 20;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55); word-break: break-all; color: #e2e8f0;
+  }
+  #node-panel h3 { font-size: 0.88rem; color: #a5b4fc; margin-bottom: 0.35rem; }
+  #panel-url { color: #64748b; font-size: 0.74rem; margin-bottom: 0.65rem; }
+  .panel-stats { display: flex; gap: 1.2rem; margin-bottom: 0.65rem; }
+  .p-stat { text-align: center; }
+  .p-stat-val { font-size: 1.25rem; font-weight: 700; color: #6366f1; }
+  .p-stat-lbl { font-size: 0.68rem; color: #64748b; }
+  #panel-links { max-height: 110px; overflow-y: auto; margin-bottom: 0.65rem; }
+  #panel-links a { display: block; color: #818cf8; font-size: 0.74rem; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; text-decoration: none; }
+  #panel-links a:hover { color: #a5b4fc; }
+  .panel-actions { display: flex; gap: 0.5rem; }
+  .panel-actions a, .panel-actions button { flex: 1; text-align: center; padding: 0.3rem; border-radius: 6px; font-size: 0.77rem; cursor: pointer; text-decoration: none; }
+  .btn-open { background: #3730a3; color: #fff; border: none; }
+  .btn-open:hover { background: #4338ca; }
+  .btn-close { background: transparent; color: #64748b; border: 1px solid #2d3152; }
+  .btn-close:hover { color: #fff; border-color: #6366f1; }
+  #legend {
+    position: absolute; bottom: 12px; left: 12px;
+    background: #1a1d2e; border: 1px solid #2d3152; border-radius: 8px;
+    padding: 0.5rem 0.8rem; font-size: 0.74rem; color: #94a3b8;
+    display: flex; flex-direction: column; gap: 4px; pointer-events: none;
+  }
+  .leg-row { display: flex; align-items: center; gap: 6px; }
+  .leg-dot  { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .leg-line { width: 18px; height: 2px; flex-shrink: 0; }
+  #zoom-hint { position: absolute; bottom: 12px; right: 12px; color: #334155; font-size: 0.7rem; pointer-events: none; }
+</style>
+{% endblock %}
 
-    /* ── Layout ────────────────────────────────────────────────── */
-    #sm-wrap {
-      display: flex;
-      flex-direction: column;
-      height: calc(100vh - 56px); /* subtract navbar height */
-    }
-
-    #sm-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.6rem 1.2rem;
-      background: #13162a;
-      border-bottom: 1px solid #1e2245;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      flex-shrink: 0;
-    }
-
-    #sm-toolbar h1 {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: #a5b4fc;
-      margin: 0;
-    }
-
-    .sm-controls { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
-
-    .sm-btn {
-      padding: 0.3rem 0.75rem;
-      border-radius: 6px;
-      border: 1px solid #3730a3;
-      background: #1e2045;
-      color: #a5b4fc;
-      font-size: 0.8rem;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
-      user-select: none;
-    }
-    .sm-btn:hover { background: #3730a3; color: #fff; }
-
-    #sm-stats { color: #475569; font-size: 0.8rem; margin-left: 0.5rem; }
-
-    /* ── Canvas area ────────────────────────────────────────────── */
-    #canvas-wrap {
-      flex: 1;
-      position: relative;
-      overflow: hidden;
-    }
-
-    #graph-canvas {
-      display: block;
-      cursor: grab;
-      touch-action: none;
-    }
-    #graph-canvas.dragging-node  { cursor: grabbing; }
-    #graph-canvas.dragging-canvas { cursor: grabbing; }
-
-    /* ── Empty state ─────────────────────────────────────────────── */
-    #empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      gap: 0.75rem;
-      color: #475569;
-    }
-    #empty-state .empty-icon { font-size: 3.5rem; }
-    #empty-state p { font-size: 0.95rem; }
-    #empty-state a { color: #818cf8; }
-
-    /* ── Node detail panel ───────────────────────────────────────── */
-    #node-panel {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      width: 300px;
-      background: #1a1d2e;
-      border: 1px solid #2d3152;
-      border-radius: 10px;
-      padding: 1rem;
-      font-size: 0.84rem;
-      display: none;
-      z-index: 20;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.55);
-      word-break: break-all;
-    }
-    #node-panel h3 { font-size: 0.9rem; color: #a5b4fc; margin-bottom: 0.4rem; }
-    #panel-url { color: #64748b; font-size: 0.75rem; margin-bottom: 0.7rem; }
-    .panel-stats { display: flex; gap: 1.2rem; margin-bottom: 0.7rem; }
-    .p-stat { text-align: center; }
-    .p-stat-val { font-size: 1.3rem; font-weight: 700; color: #6366f1; }
-    .p-stat-lbl { font-size: 0.7rem; color: #64748b; }
-    #panel-links { max-height: 110px; overflow-y: auto; margin-bottom: 0.75rem; }
-    #panel-links a {
-      display: block; color: #818cf8; font-size: 0.76rem;
-      padding: 2px 0; white-space: nowrap; overflow: hidden;
-      text-overflow: ellipsis; cursor: pointer; text-decoration: none;
-    }
-    #panel-links a:hover { color: #a5b4fc; }
-    .panel-actions { display: flex; gap: 0.5rem; }
-    .panel-actions a, .panel-actions button {
-      flex: 1; text-align: center; padding: 0.35rem;
-      border-radius: 6px; font-size: 0.79rem; cursor: pointer;
-      text-decoration: none;
-    }
-    .btn-open { background: #3730a3; color: #fff; border: none; }
-    .btn-open:hover { background: #4338ca; }
-    .btn-close { background: transparent; color: #64748b; border: 1px solid #2d3152; }
-    .btn-close:hover { color: #fff; border-color: #6366f1; }
-
-    /* ── Legend ───────────────────────────────────────────────────── */
-    #legend {
-      position: absolute;
-      bottom: 12px;
-      left: 12px;
-      background: #1a1d2e;
-      border: 1px solid #2d3152;
-      border-radius: 8px;
-      padding: 0.55rem 0.85rem;
-      font-size: 0.76rem;
-      color: #94a3b8;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      pointer-events: none;
-    }
-    .leg-row { display: flex; align-items: center; gap: 6px; }
-    .leg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    .leg-line { width: 18px; height: 2px; flex-shrink: 0; }
-
-    /* ── Zoom hint ────────────────────────────────────────────────── */
-    #zoom-hint {
-      position: absolute;
-      bottom: 12px;
-      right: 12px;
-      color: #334155;
-      font-size: 0.73rem;
-      pointer-events: none;
-    }
-  </style>
-</head>
-<body>
-  <nav class="navbar">
-    <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
-      <span></span><span></span><span></span>
-    </button>
-    <div class="nav-links" id="nav-links">
-      <a href="/">Home</a>
-      <a href="/results">Results</a>
-      <a href="/fact-check">🤖 Fact Check</a>
-      <a href="/site-map" class="active">🗺 Site Map</a>
-      <a href="/ask">🧠 Ask AI</a>
-      <a href="/account-manager">🔐 Accounts</a>
-    </div>
-  </nav>
-
-  <div id="sm-wrap">
-    <div id="sm-toolbar">
-      <h1>🗺 Website Structure</h1>
-      <div class="sm-controls">
-        <button class="sm-btn" id="btn-fit">⊡ Fit</button>
-        <button class="sm-btn" id="btn-zi">＋ Zoom In</button>
-        <button class="sm-btn" id="btn-zo">－ Zoom Out</button>
-        <button class="sm-btn" id="btn-layout">↺ Re-layout</button>
-        <span id="sm-stats"></span>
-      </div>
-    </div>
-
-    <div id="canvas-wrap">
-      <canvas id="graph-canvas"></canvas>
-
-      <!-- Node detail panel -->
-      <div id="node-panel">
-        <h3 id="panel-title">Page Details</h3>
-        <div id="panel-url"></div>
-        <div class="panel-stats">
-          <div class="p-stat">
-            <div class="p-stat-val" id="panel-out">0</div>
-            <div class="p-stat-lbl">Out-links</div>
-          </div>
-          <div class="p-stat">
-            <div class="p-stat-val" id="panel-in">0</div>
-            <div class="p-stat-lbl">In-links</div>
-          </div>
-        </div>
-        <div id="panel-links"></div>
-        <div class="panel-actions">
-          <a id="panel-open" class="btn-open" href="#" target="_blank">🔍 View Details</a>
-          <button class="btn-close" id="panel-close">✕ Close</button>
-        </div>
-      </div>
-
-      <!-- Legend -->
-      <div id="legend">
-        <div class="leg-row">
-          <div class="leg-dot" style="background:#6366f1;"></div>
-          <span>Page</span>
-        </div>
-        <div class="leg-row">
-          <div class="leg-dot" style="background:#f59e0b;"></div>
-          <span>Selected</span>
-        </div>
-        <div class="leg-row">
-          <div class="leg-line" style="background:#4338ca;"></div>
-          <span>Link</span>
-        </div>
-      </div>
-
-      <div id="zoom-hint">Scroll to zoom · Drag to pan · Click node for details</div>
+{% block content %}
+<div id="sm-wrap">
+  <div id="sm-toolbar">
+    <h1>🗺 Website Structure</h1>
+    <div class="sm-controls">
+      <button class="sm-btn" id="btn-fit">⊡ Fit</button>
+      <button class="sm-btn" id="btn-zi">＋ Zoom In</button>
+      <button class="sm-btn" id="btn-zo">－ Zoom Out</button>
+      <button class="sm-btn" id="btn-layout">↺ Re-layout</button>
+      <span id="sm-stats"></span>
     </div>
   </div>
 
-  <script>
-  (async () => {
-    /* ── Constants ───────────────────────────────────────────────── */
-    const MIN_SCALE        = 0.08;
-    const MAX_SCALE        = 6;
-    const ZOOM_IN_FACTOR   = 1.3;
-    const ZOOM_OUT_FACTOR  = 0.77;
-    const WHEEL_IN_FACTOR  = 1.12;
-    const WHEEL_OUT_FACTOR = 0.89;
-    const MAX_LABEL_LEN    = 18;
-    const TRUNCATE_LEN     = 16;
+  <div id="canvas-wrap">
+    <canvas id="graph-canvas"></canvas>
 
-    /* ── Fetch graph data ──────────────────────────────────────── */
-    let gData = { nodes: [], edges: [] };
-    try {
-      const r = await fetch('/site-graph');
-      if (r.ok) gData = await r.json();
-    } catch (e) { console.error(e); }
+    <div id="node-panel">
+      <h3 id="panel-title">Page Details</h3>
+      <div id="panel-url"></div>
+      <div class="panel-stats">
+        <div class="p-stat"><div class="p-stat-val" id="panel-out">0</div><div class="p-stat-lbl">Out-links</div></div>
+        <div class="p-stat"><div class="p-stat-val" id="panel-in">0</div><div class="p-stat-lbl">In-links</div></div>
+      </div>
+      <div id="panel-links"></div>
+      <div class="panel-actions">
+        <a id="panel-open" class="btn-open" href="#" target="_blank">🔍 View Details</a>
+        <button class="btn-close" id="panel-close">✕ Close</button>
+      </div>
+    </div>
 
-    const wrap    = document.getElementById('canvas-wrap');
-    const canvas  = document.getElementById('graph-canvas');
-    const ctx     = canvas.getContext('2d');
+    <div id="legend">
+      <div class="leg-row"><div class="leg-dot" style="background:#6366f1;"></div><span>Page</span></div>
+      <div class="leg-row"><div class="leg-dot" style="background:#f59e0b;"></div><span>Selected</span></div>
+      <div class="leg-row"><div class="leg-line" style="background:#4338ca;"></div><span>Link</span></div>
+    </div>
+    <div id="zoom-hint">Scroll to zoom · Drag to pan · Click node for details</div>
+  </div>
+</div>
+{% endblock %}
 
-    /* ── Empty state ──────────────────────────────────────────── */
-    if (!gData.nodes || gData.nodes.length === 0) {
-      canvas.style.display = 'none';
-      document.getElementById('legend').style.display = 'none';
-      document.getElementById('zoom-hint').style.display = 'none';
-      const es = document.createElement('div');
-      es.id = 'empty-state';
-      es.innerHTML = '<div class="empty-icon">🕸️</div>' +
-        '<p>No crawl data. <a href="/">Start a crawl first</a>.</p>';
-      wrap.appendChild(es);
-      return;
-    }
-
-    document.getElementById('sm-stats').textContent =
-      `${gData.nodes.length} pages · ${gData.edges.length} links`;
-
-    /* ── Build node / edge objects ────────────────────────────── */
-    const NODE_R   = 12;
-    const nodeMap  = {};   // id → node object
-    const nodes    = [];
-    const edges    = [];
-
-    gData.nodes.forEach(n => {
-      const node = {
-        id: n.id,
-        label: shortLabel(n.id),
-        x: Math.random() * 800,
-        y: Math.random() * 600,
-        vx: 0, vy: 0,
-        highlighted: false,
-        dimmed: false,
-      };
-      nodeMap[n.id] = node;
-      nodes.push(node);
+{% block scripts %}
+<script>
+(async () => {
+  const MIN_SCALE=0.08,MAX_SCALE=6,ZOOM_IN_FACTOR=1.3,ZOOM_OUT_FACTOR=0.77,WHEEL_IN_FACTOR=1.12,WHEEL_OUT_FACTOR=0.89,MAX_LABEL_LEN=18,TRUNCATE_LEN=16;
+  let gData={nodes:[],edges:[]};
+  try{const r=await fetch('/site-graph');if(r.ok)gData=await r.json();}catch(e){console.error(e);}
+  const wrap=document.getElementById('canvas-wrap'),canvas=document.getElementById('graph-canvas'),ctx=canvas.getContext('2d');
+  if(!gData.nodes||gData.nodes.length===0){
+    canvas.style.display='none';
+    document.getElementById('legend').style.display='none';
+    document.getElementById('zoom-hint').style.display='none';
+    const es=document.createElement('div');es.id='empty-state';
+    es.innerHTML='<div class="empty-icon">🕸️</div><p>No crawl data. <a href="/">Start a crawl first</a>.</p>';
+    wrap.appendChild(es);return;
+  }
+  document.getElementById('sm-stats').textContent=`${gData.nodes.length} pages · ${gData.edges.length} links`;
+  const NODE_R=12,nodeMap={},nodes=[],edges=[];
+  gData.nodes.forEach(n=>{const node={id:n.id,label:shortLabel(n.id),x:Math.random()*800,y:Math.random()*600,vx:0,vy:0,highlighted:false,dimmed:false};nodeMap[n.id]=node;nodes.push(node);});
+  gData.edges.forEach(e=>{const s=nodeMap[e.source],t=nodeMap[e.target];if(s&&t)edges.push({source:s,target:t,highlighted:false,dimmed:false});});
+  let scale=1,panX=0,panY=0;
+  function toScreen(wx,wy){return{x:wx*scale+panX,y:wy*scale+panY};}
+  function toWorld(sx,sy){return{x:(sx-panX)/scale,y:(sy-panY)/scale};}
+  const K_REPEL=3000,K_SPRING=0.05,REST_LEN=120,DAMP=0.85,GRAVITY=0.015;
+  let simRunning=true,simTick=0;const MAX_TICKS=300;
+  function simulateStep(){
+    const cx=nodes.reduce((s,n)=>s+n.x,0)/nodes.length,cy=nodes.reduce((s,n)=>s+n.y,0)/nodes.length;
+    for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i],b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y;const d2=dx*dx+dy*dy||0.01,d=Math.sqrt(d2),f=K_REPEL/d2,ux=dx/d,uy=dy/d;a.vx-=ux*f;a.vy-=uy*f;b.vx+=ux*f;b.vy+=uy*f;}
+    edges.forEach(e=>{const dx=e.target.x-e.source.x,dy=e.target.y-e.source.y,d=Math.sqrt(dx*dx+dy*dy)||0.01,f=K_SPRING*(d-REST_LEN),ux=dx/d,uy=dy/d;e.source.vx+=ux*f;e.source.vy+=uy*f;e.target.vx-=ux*f;e.target.vy-=uy*f;});
+    nodes.forEach(n=>{n.vx+=(cx-n.x)*GRAVITY;n.vy+=(cy-n.y)*GRAVITY;});
+    nodes.forEach(n=>{n.vx*=DAMP;n.vy*=DAMP;if(!n.dragging){n.x+=n.vx;n.y+=n.vy;}});
+    simTick++;if(simTick>MAX_TICKS)simRunning=false;
+  }
+  function fitToView(){if(!nodes.length)return;const pad=60,xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),w=canvas.width,h=canvas.height,gw=maxX-minX||1,gh=maxY-minY||1;scale=Math.min((w-pad*2)/gw,(h-pad*2)/gh,2);panX=(w-gw*scale)/2-minX*scale;panY=(h-gh*scale)/2-minY*scale;}
+  function resizeCanvas(){canvas.width=wrap.clientWidth;canvas.height=wrap.clientHeight;}
+  resizeCanvas();window.addEventListener('resize',()=>{resizeCanvas();fitToView();});
+  const CC='#6366f1',CH='#f59e0b',CD='#1e2045',CE='#4338ca',CEH='#f59e0b',CED='#1e2245',CT='#e2e8f0',CTD='#1e293b';
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#0f1117';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.save();
+    edges.forEach(e=>{const s=toScreen(e.source.x,e.source.y),t=toScreen(e.target.x,e.target.y);
+      if(e.dimmed){ctx.globalAlpha=0.06;ctx.strokeStyle=CED;}else if(e.highlighted){ctx.globalAlpha=1;ctx.strokeStyle=CEH;}else{ctx.globalAlpha=0.6;ctx.strokeStyle=CE;}
+      const dx=t.x-s.x,dy=t.y-s.y,len=Math.sqrt(dx*dx+dy*dy)||1,ux=dx/len,uy=dy/len,r=NODE_R*scale,tx=t.x-ux*r,ty=t.y-uy*r,sx=s.x+ux*r,sy=s.y+uy*r;
+      ctx.lineWidth=e.highlighted?2*scale:1.2*scale;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(tx,ty);ctx.stroke();
+      const as=7*scale,ax=tx-ux*as,ay=ty-uy*as,px=-uy,py=ux;
+      ctx.beginPath();ctx.moveTo(tx,ty);ctx.lineTo(ax+px*as*0.4,ay+py*as*0.4);ctx.lineTo(ax-px*as*0.4,ay-py*as*0.4);ctx.closePath();ctx.fillStyle=e.highlighted?CEH:(e.dimmed?CED:CE);ctx.fill();
     });
-
-    gData.edges.forEach(e => {
-      const s = nodeMap[e.source];
-      const t = nodeMap[e.target];
-      if (s && t) edges.push({ source: s, target: t, highlighted: false, dimmed: false });
-    });
-
-    /* ── Viewport transform ───────────────────────────────────── */
-    let scale = 1, panX = 0, panY = 0;
-
-    function toScreen(wx, wy) {
-      return { x: wx * scale + panX, y: wy * scale + panY };
-    }
-    function toWorld(sx, sy) {
-      return { x: (sx - panX) / scale, y: (sy - panY) / scale };
-    }
-
-    /* ── Force-directed layout ───────────────────────────────── */
-    const K_REPEL  = 3000;
-    const K_SPRING = 0.05;
-    const REST_LEN = 120;
-    const DAMP     = 0.85;
-    const GRAVITY  = 0.015;
-    let   simRunning = true;
-    let   simTick    = 0;
-    const MAX_TICKS  = 300;
-
-    function simulateStep() {
-      const cx = nodes.reduce((s, n) => s + n.x, 0) / nodes.length;
-      const cy = nodes.reduce((s, n) => s + n.y, 0) / nodes.length;
-
-      /* repulsion */
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j];
-          let dx = b.x - a.x, dy = b.y - a.y;
-          const d2 = dx * dx + dy * dy || 0.01;
-          const d  = Math.sqrt(d2);
-          const f  = K_REPEL / d2;
-          const ux = dx / d, uy = dy / d;
-          a.vx -= ux * f;  a.vy -= uy * f;
-          b.vx += ux * f;  b.vy += uy * f;
-        }
-      }
-
-      /* spring attraction along edges */
-      edges.forEach(e => {
-        const dx = e.target.x - e.source.x;
-        const dy = e.target.y - e.source.y;
-        const d  = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const f  = K_SPRING * (d - REST_LEN);
-        const ux = dx / d, uy = dy / d;
-        e.source.vx += ux * f;  e.source.vy += uy * f;
-        e.target.vx -= ux * f;  e.target.vy -= uy * f;
-      });
-
-      /* gravity toward centre */
-      nodes.forEach(n => {
-        n.vx += (cx - n.x) * GRAVITY;
-        n.vy += (cy - n.y) * GRAVITY;
-      });
-
-      /* integrate */
-      nodes.forEach(n => {
-        n.vx *= DAMP;  n.vy *= DAMP;
-        if (!n.dragging) { n.x += n.vx;  n.y += n.vy; }
-      });
-
-      simTick++;
-      if (simTick > MAX_TICKS) simRunning = false;
-    }
-
-    /* ── Initial fit after first N ticks ────────────────────── */
-    function fitToView() {
-      if (nodes.length === 0) return;
-      const pad = 60;
-      const xs  = nodes.map(n => n.x);
-      const ys  = nodes.map(n => n.y);
-      const minX = Math.min(...xs), maxX = Math.max(...xs);
-      const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const w = canvas.width, h = canvas.height;
-      const gw = maxX - minX || 1, gh = maxY - minY || 1;
-      scale = Math.min((w - pad * 2) / gw, (h - pad * 2) / gh, 2);
-      panX  = (w - gw * scale) / 2 - minX * scale;
-      panY  = (h - gh * scale) / 2 - minY * scale;
-    }
-
-    /* ── Resize canvas ───────────────────────────────────────── */
-    function resizeCanvas() {
-      canvas.width  = wrap.clientWidth;
-      canvas.height = wrap.clientHeight;
-    }
-    resizeCanvas();
-    window.addEventListener('resize', () => { resizeCanvas(); fitToView(); });
-
-    /* ── Draw ─────────────────────────────────────────────────── */
-    const COLOR_NODE   = '#6366f1';
-    const COLOR_HL     = '#f59e0b';
-    const COLOR_DIMMED = '#1e2045';
-    const COLOR_EDGE   = '#4338ca';
-    const COLOR_EDGE_HL = '#f59e0b';
-    const COLOR_EDGE_DIM = '#1e2245';
-    const COLOR_TEXT   = '#e2e8f0';
-    const COLOR_TEXT_DIM = '#1e293b';
-
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      /* background */
-      ctx.fillStyle = '#0f1117';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.save();
-
-      /* ─ edges ─ */
-      edges.forEach(e => {
-        const s = toScreen(e.source.x, e.source.y);
-        const t = toScreen(e.target.x, e.target.y);
-
-        if (e.dimmed) {
-          ctx.globalAlpha = 0.06;
-          ctx.strokeStyle = COLOR_EDGE_DIM;
-        } else if (e.highlighted) {
-          ctx.globalAlpha = 1;
-          ctx.strokeStyle = COLOR_EDGE_HL;
-        } else {
-          ctx.globalAlpha = 0.6;
-          ctx.strokeStyle = COLOR_EDGE;
-        }
-
-        /* arrowhead direction */
-        const dx = t.x - s.x, dy = t.y - s.y;
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const ux  = dx / len, uy = dy / len;
-        const r   = NODE_R * scale;
-        const tx  = t.x - ux * r, ty = t.y - uy * r;
-        const sx  = s.x + ux * r, sy = s.y + uy * r;
-
-        ctx.lineWidth = e.highlighted ? 2 * scale : 1.2 * scale;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(tx, ty);
-        ctx.stroke();
-
-        /* arrow tip */
-        const arrowSize = 7 * scale;
-        const ax = tx - ux * arrowSize, ay = ty - uy * arrowSize;
-        const perpX = -uy, perpY = ux;
-        ctx.beginPath();
-        ctx.moveTo(tx, ty);
-        ctx.lineTo(ax + perpX * arrowSize * 0.4, ay + perpY * arrowSize * 0.4);
-        ctx.lineTo(ax - perpX * arrowSize * 0.4, ay - perpY * arrowSize * 0.4);
-        ctx.closePath();
-        ctx.fillStyle = e.highlighted ? COLOR_EDGE_HL : (e.dimmed ? COLOR_EDGE_DIM : COLOR_EDGE);
-        ctx.fill();
-      });
-
-      ctx.globalAlpha = 1;
-
-      /* ─ nodes ─ */
-      nodes.forEach(n => {
-        const s = toScreen(n.x, n.y);
-        const r = NODE_R * scale;
-
-        const fillColor  = n.dimmed ? COLOR_DIMMED : (n.highlighted ? COLOR_HL : COLOR_NODE);
-        const textColor  = n.dimmed ? COLOR_TEXT_DIM : COLOR_TEXT;
-        const borderW    = n.highlighted ? 2.5 * scale : 1.5 * scale;
-        const borderColor = n.highlighted ? '#fbbf24' : '#4338ca';
-
-        /* circle */
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = fillColor;
-        ctx.fill();
-        ctx.lineWidth = borderW;
-        ctx.strokeStyle = borderColor;
-        ctx.stroke();
-
-        /* label */
-        if (!n.dimmed) {
-          const fontSize = Math.max(9, Math.min(12, 10 * scale));
-          ctx.font = `${fontSize}px system-ui, sans-serif`;
-          ctx.fillStyle = textColor;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'top';
-          const label = n.label.length > MAX_LABEL_LEN ? n.label.slice(0, TRUNCATE_LEN) + '…' : n.label;
-          ctx.fillText(label, s.x, s.y + r + 3 * scale);
-        }
-      });
-
-      ctx.restore();
-    }
-
-    /* ── Animation loop ───────────────────────────────────────── */
-    let fittedOnce = false;
-    function loop() {
-      if (simRunning) {
-        for (let i = 0; i < 3; i++) simulateStep();
-      }
-      if (!fittedOnce && simTick >= 80) {
-        fitToView();
-        fittedOnce = true;
-      }
-      draw();
-      requestAnimationFrame(loop);
-    }
-    loop();
-
-    /* ── Interaction: drag node / pan canvas ─────────────────── */
-    let draggingNode   = null;
-    let draggingCanvas = false;
-    let lastMouse      = { x: 0, y: 0 };
-
-    function getPos(e) {
-      const r = canvas.getBoundingClientRect();
-      const t = e.touches ? e.touches[0] : e;
-      return { x: t.clientX - r.left, y: t.clientY - r.top };
-    }
-
-    function hitNode(sx, sy) {
-      const { x: wx, y: wy } = toWorld(sx, sy);
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const n = nodes[i];
-        const dx = n.x - wx, dy = n.y - wy;
-        if (Math.sqrt(dx * dx + dy * dy) <= NODE_R + 4) return n;
-      }
-      return null;
-    }
-
-    canvas.addEventListener('mousedown', e => {
-      const pos = getPos(e);
-      const hit = hitNode(pos.x, pos.y);
-      if (hit) {
-        draggingNode = hit;
-        hit.dragging = true;
-        canvas.classList.add('dragging-node');
-      } else {
-        draggingCanvas = true;
-        canvas.classList.add('dragging-canvas');
-      }
-      lastMouse = pos;
-    });
-
-    window.addEventListener('mousemove', e => {
-      const pos = getPos(e);
-      const dx  = pos.x - lastMouse.x;
-      const dy  = pos.y - lastMouse.y;
-      if (draggingNode) {
-        draggingNode.x += dx / scale;
-        draggingNode.y += dy / scale;
-        simRunning = true; simTick = 0;
-      } else if (draggingCanvas) {
-        panX += dx;
-        panY += dy;
-      }
-      lastMouse = pos;
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (draggingNode) { draggingNode.dragging = false; draggingNode = null; }
-      draggingCanvas = false;
-      canvas.classList.remove('dragging-node', 'dragging-canvas');
-    });
-
-    /* touch support */
-    canvas.addEventListener('touchstart', e => {
-      e.preventDefault();
-      const pos = getPos(e);
-      const hit = hitNode(pos.x, pos.y);
-      if (hit) { draggingNode = hit; hit.dragging = true; }
-      else      { draggingCanvas = true; }
-      lastMouse = pos;
-    }, { passive: false });
-
-    canvas.addEventListener('touchmove', e => {
-      e.preventDefault();
-      const pos = getPos(e);
-      const dx  = pos.x - lastMouse.x;
-      const dy  = pos.y - lastMouse.y;
-      if (draggingNode) {
-        draggingNode.x += dx / scale;
-        draggingNode.y += dy / scale;
-        simRunning = true; simTick = 0;
-      } else if (draggingCanvas) {
-        panX += dx; panY += dy;
-      }
-      lastMouse = pos;
-    }, { passive: false });
-
-    canvas.addEventListener('touchend', () => {
-      if (draggingNode) { draggingNode.dragging = false; draggingNode = null; }
-      draggingCanvas = false;
-    });
-
-    /* scroll to zoom */
-    canvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      const pos    = getPos(e);
-      const factor = e.deltaY < 0 ? WHEEL_IN_FACTOR : WHEEL_OUT_FACTOR;
-      const wx     = (pos.x - panX) / scale;
-      const wy     = (pos.y - panY) / scale;
-      scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor));
-      panX  = pos.x - wx * scale;
-      panY  = pos.y - wy * scale;
-    }, { passive: false });
-
-    /* ── Click to select node ─────────────────────────────────── */
-    let mousedownPos = null;
-    canvas.addEventListener('mousedown', e => { mousedownPos = getPos(e); });
-    canvas.addEventListener('mouseup', e => {
-      if (!mousedownPos) return;
-      const pos = getPos(e);
-      const moved = Math.abs(pos.x - mousedownPos.x) + Math.abs(pos.y - mousedownPos.y);
-      mousedownPos = null;
-      if (moved > 4) return;  // was a drag, not a click
-
-      const hit = hitNode(pos.x, pos.y);
-      if (hit) {
-        selectNode(hit);
-      } else {
-        clearSelection();
-      }
-    });
-
-    /* ── Node selection & highlight ──────────────────────────── */
-    const panel      = document.getElementById('node-panel');
-    const panelTitle = document.getElementById('panel-title');
-    const panelUrl   = document.getElementById('panel-url');
-    const panelOut   = document.getElementById('panel-out');
-    const panelIn    = document.getElementById('panel-in');
-    const panelLinks = document.getElementById('panel-links');
-    const panelOpen  = document.getElementById('panel-open');
-
-    function selectNode(node) {
-      /* compute neighbourhood */
-      const connectedIds = new Set([node.id]);
-      const connEdges    = new Set();
-
-      edges.forEach(e => {
-        if (e.source === node) { connectedIds.add(e.target.id); connEdges.add(e); }
-        if (e.target === node) { connectedIds.add(e.source.id); connEdges.add(e); }
-      });
-
-      nodes.forEach(n => {
-        n.highlighted = n === node;
-        n.dimmed      = !connectedIds.has(n.id);
-      });
-      edges.forEach(e => {
-        e.highlighted = connEdges.has(e);
-        e.dimmed      = !connEdges.has(e);
-      });
-
-      /* out-links = edges where this node is source */
-      const outEdges  = edges.filter(e => e.source === node);
-      const inEdges   = edges.filter(e => e.target === node);
-      const outTargets = outEdges.map(e => e.target);
-
-      panelTitle.textContent = node.label;
-      panelUrl.textContent   = node.id;
-      panelOut.textContent   = outEdges.length;
-      panelIn.textContent    = inEdges.length;
-      panelLinks.innerHTML   = '';
-
-      outTargets.forEach(t => {
-        const a = document.createElement('a');
-        a.textContent = t.label;
-        a.title       = t.id;
-        a.href        = '#';
-        a.addEventListener('click', ev => { ev.preventDefault(); selectNode(t); });
-        panelLinks.appendChild(a);
-      });
-
-      panelOpen.href = `/page?url=${encodeURIComponent(node.id)}`;
-      panel.style.display = 'block';
-    }
-
-    function clearSelection() {
-      nodes.forEach(n => { n.highlighted = false; n.dimmed = false; });
-      edges.forEach(e => { e.highlighted = false; e.dimmed = false; });
-      panel.style.display = 'none';
-    }
-
-    document.getElementById('panel-close').addEventListener('click', clearSelection);
-
-    /* ── Toolbar buttons ─────────────────────────────────────── */
-    document.getElementById('btn-fit').addEventListener('click', fitToView);
-    document.getElementById('btn-zi').addEventListener('click', () => {
-      scale = Math.min(MAX_SCALE, scale * ZOOM_IN_FACTOR);
-      fitToView();
-    });
-    document.getElementById('btn-zo').addEventListener('click', () => {
-      scale = Math.max(MIN_SCALE, scale * ZOOM_OUT_FACTOR);
-      fitToView();
-    });
-    document.getElementById('btn-layout').addEventListener('click', () => {
-      /* scatter nodes and restart simulation */
-      nodes.forEach(n => {
-        n.x = Math.random() * 800; n.y = Math.random() * 600;
-        n.vx = 0; n.vy = 0;
-      });
-      simRunning = true;
-      simTick    = 0;
-      fittedOnce = false;
-    });
-
-    /* ── Helpers ─────────────────────────────────────────────── */
-    function shortLabel(url) {
-      try {
-        const u = new URL(url);
-        const path = u.pathname.replace(/\/$/, '') || '/';
-        const parts = path.split('/').filter(Boolean);
-        return parts.length ? parts[parts.length - 1] : u.hostname;
-      } catch (_) { return url; }
-    }
-
-  })();
-
-    document.getElementById('nav-toggle').addEventListener('click', function () {
-      document.getElementById('nav-links').classList.toggle('open');
-    });
-  </script>
-</body>
-</html>
+    ctx.globalAlpha=1;
+    nodes.forEach(n=>{const s=toScreen(n.x,n.y),r=NODE_R*scale,fc=n.dimmed?CD:(n.highlighted?CH:CC),tc=n.dimmed?CTD:CT,bw=n.highlighted?2.5*scale:1.5*scale,bc=n.highlighted?'#fbbf24':'#4338ca';
+      ctx.beginPath();ctx.arc(s.x,s.y,r,0,Math.PI*2);ctx.fillStyle=fc;ctx.fill();ctx.lineWidth=bw;ctx.strokeStyle=bc;ctx.stroke();
+      if(!n.dimmed){const fs=Math.max(9,Math.min(12,10*scale));ctx.font=`${fs}px system-ui,sans-serif`;ctx.fillStyle=tc;ctx.textAlign='center';ctx.textBaseline='top';const lbl=n.label.length>MAX_LABEL_LEN?n.label.slice(0,TRUNCATE_LEN)+'…':n.label;ctx.fillText(lbl,s.x,s.y+r+3*scale);}
+    });ctx.restore();
+  }
+  let fittedOnce=false;
+  function loop(){if(simRunning)for(let i=0;i<3;i++)simulateStep();if(!fittedOnce&&simTick>=80){fitToView();fittedOnce=true;}draw();requestAnimationFrame(loop);}
+  loop();
+  let draggingNode=null,draggingCanvas=false,lastMouse={x:0,y:0};
+  function getPos(e){const r=canvas.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};}
+  function hitNode(sx,sy){const{x:wx,y:wy}=toWorld(sx,sy);for(let i=nodes.length-1;i>=0;i--){const n=nodes[i],dx=n.x-wx,dy=n.y-wy;if(Math.sqrt(dx*dx+dy*dy)<=NODE_R+4)return n;}return null;}
+  canvas.addEventListener('mousedown',e=>{const pos=getPos(e),hit=hitNode(pos.x,pos.y);if(hit){draggingNode=hit;hit.dragging=true;canvas.classList.add('dragging-node');}else{draggingCanvas=true;canvas.classList.add('dragging-canvas');}lastMouse=pos;});
+  window.addEventListener('mousemove',e=>{const pos=getPos(e),dx=pos.x-lastMouse.x,dy=pos.y-lastMouse.y;if(draggingNode){draggingNode.x+=dx/scale;draggingNode.y+=dy/scale;simRunning=true;simTick=0;}else if(draggingCanvas){panX+=dx;panY+=dy;}lastMouse=pos;});
+  window.addEventListener('mouseup',()=>{if(draggingNode){draggingNode.dragging=false;draggingNode=null;}draggingCanvas=false;canvas.classList.remove('dragging-node','dragging-canvas');});
+  canvas.addEventListener('touchstart',e=>{e.preventDefault();const pos=getPos(e),hit=hitNode(pos.x,pos.y);if(hit){draggingNode=hit;hit.dragging=true;}else draggingCanvas=true;lastMouse=pos;},{passive:false});
+  canvas.addEventListener('touchmove',e=>{e.preventDefault();const pos=getPos(e),dx=pos.x-lastMouse.x,dy=pos.y-lastMouse.y;if(draggingNode){draggingNode.x+=dx/scale;draggingNode.y+=dy/scale;simRunning=true;simTick=0;}else if(draggingCanvas){panX+=dx;panY+=dy;}lastMouse=pos;},{passive:false});
+  canvas.addEventListener('touchend',()=>{if(draggingNode){draggingNode.dragging=false;draggingNode=null;}draggingCanvas=false;});
+  canvas.addEventListener('wheel',e=>{e.preventDefault();const pos=getPos(e),factor=e.deltaY<0?WHEEL_IN_FACTOR:WHEEL_OUT_FACTOR,wx=(pos.x-panX)/scale,wy=(pos.y-panY)/scale;scale=Math.max(MIN_SCALE,Math.min(MAX_SCALE,scale*factor));panX=pos.x-wx*scale;panY=pos.y-wy*scale;},{passive:false});
+  let mousedownPos=null;
+  canvas.addEventListener('mousedown',e=>{mousedownPos=getPos(e);});
+  canvas.addEventListener('mouseup',e=>{if(!mousedownPos)return;const pos=getPos(e),moved=Math.abs(pos.x-mousedownPos.x)+Math.abs(pos.y-mousedownPos.y);mousedownPos=null;if(moved>4)return;const hit=hitNode(pos.x,pos.y);if(hit)selectNode(hit);else clearSelection();});
+  const panel=document.getElementById('node-panel'),panelTitle=document.getElementById('panel-title'),panelUrl=document.getElementById('panel-url'),panelOut=document.getElementById('panel-out'),panelIn=document.getElementById('panel-in'),panelLinks=document.getElementById('panel-links'),panelOpen=document.getElementById('panel-open');
+  function selectNode(node){
+    const connIds=new Set([node.id]),connEdges=new Set();
+    edges.forEach(e=>{if(e.source===node){connIds.add(e.target.id);connEdges.add(e);}if(e.target===node){connIds.add(e.source.id);connEdges.add(e);}});
+    nodes.forEach(n=>{n.highlighted=n===node;n.dimmed=!connIds.has(n.id);});
+    edges.forEach(e=>{e.highlighted=connEdges.has(e);e.dimmed=!connEdges.has(e);});
+    const outEdges=edges.filter(e=>e.source===node),inEdges=edges.filter(e=>e.target===node);
+    panelTitle.textContent=node.label;panelUrl.textContent=node.id;panelOut.textContent=outEdges.length;panelIn.textContent=inEdges.length;panelLinks.innerHTML='';
+    outEdges.map(e=>e.target).forEach(t=>{const a=document.createElement('a');a.textContent=t.label;a.title=t.id;a.href='#';a.addEventListener('click',ev=>{ev.preventDefault();selectNode(t);});panelLinks.appendChild(a);});
+    panelOpen.href=`/page?url=${encodeURIComponent(node.id)}`;panel.style.display='block';
+  }
+  function clearSelection(){nodes.forEach(n=>{n.highlighted=false;n.dimmed=false;});edges.forEach(e=>{e.highlighted=false;e.dimmed=false;});panel.style.display='none';}
+  document.getElementById('panel-close').addEventListener('click',clearSelection);
+  document.getElementById('btn-fit').addEventListener('click',fitToView);
+  document.getElementById('btn-zi').addEventListener('click',()=>{scale=Math.min(MAX_SCALE,scale*ZOOM_IN_FACTOR);fitToView();});
+  document.getElementById('btn-zo').addEventListener('click',()=>{scale=Math.max(MIN_SCALE,scale*ZOOM_OUT_FACTOR);fitToView();});
+  document.getElementById('btn-layout').addEventListener('click',()=>{nodes.forEach(n=>{n.x=Math.random()*800;n.y=Math.random()*600;n.vx=0;n.vy=0;});simRunning=true;simTick=0;fittedOnce=false;});
+  function shortLabel(url){try{const u=new URL(url),path=u.pathname.replace(/\/$/,'')||'/';const parts=path.split('/').filter(Boolean);return parts.length?parts[parts.length-1]:u.hostname;}catch(_){return url;}}
+})();
+</script>
+{% endblock %}

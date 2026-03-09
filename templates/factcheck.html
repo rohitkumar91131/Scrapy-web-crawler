@@ -1,212 +1,184 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Fact Checker – Scrapy Web Crawler</title>
-  <link rel="stylesheet" href="/static/style.css" />
-</head>
-<body>
-  <nav class="navbar">
-    <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
-      <span></span><span></span><span></span>
+{% extends "_base.html" %}
+{% block title %}AI Fact Checker – Scrapy Crawler{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">AI Fact Checker</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Select a crawled page and let Gemini AI verify its factual claims.</p>
+  </div>
+
+  <!-- Input form -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm max-w-xl mb-6">
+    <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Check a Crawled Page</h2>
+    {% if crawled_urls %}
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider">Choose a crawled URL</label>
+      <select id="url-select" class="w-full px-3 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-300">
+        <option value="">— select a page —</option>
+        {% for u in crawled_urls %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+      </select>
+    </div>
+    <p class="text-xs text-gray-400 dark:text-gray-600 mb-3">or enter a URL manually:</p>
+    {% else %}
+    <div class="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-4 py-3 rounded-xl text-sm mb-4">
+      <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+      <span>No crawl results found. <a href="/" class="underline font-semibold">Start a crawl first →</a></span>
+    </div>
+    {% endif %}
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider">Page URL</label>
+      <div class="relative">
+        <i data-lucide="globe" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
+        <input type="url" id="url-input" class="w-full pl-10 pr-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-300 placeholder-gray-400" placeholder="https://example.com/page" />
+      </div>
+    </div>
+    <button id="check-btn" onclick="runFactCheck()" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors">
+      <i data-lucide="shield-check" class="w-4 h-4"></i> Run Fact Check
     </button>
-    <div class="nav-links" id="nav-links">
-      <a href="/results">Results</a>
-      <a href="/fact-check" class="active">🤖 Fact Check</a>
-      <a href="/site-map">🗺 Site Map</a>
-      <a href="/ask">🧠 Ask AI</a>
-      <a href="/account-manager">🔐 Accounts</a>
-    </div>
-  </nav>
+  </div>
 
-  <main class="container">
-    <section class="hero">
-      <h1>AI Fact Checker</h1>
-      <p class="subtitle">Select a crawled page URL and let Gemini AI verify the factual claims found in its content.</p>
-    </section>
+  <!-- Loading -->
+  <div id="loading-banner" class="hidden mb-5 flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 px-4 py-3 rounded-xl text-sm">
+    <div class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0"></div>
+    <span><strong>Analyzing claims with Gemini AI…</strong> This may take a few seconds.</span>
+  </div>
 
-    <!-- Input form -->
-    <div class="card crawl-card factcheck-card">
-      <h2>Check a Crawled Page</h2>
-      {% if crawled_urls %}
-      <div class="form-group">
-        <label for="url-select">Choose a crawled URL</label>
-        <select id="url-select" class="form-control">
-          <option value="">— select a page —</option>
-          {% for u in crawled_urls %}
-          <option value="{{ u }}">{{ u }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <p class="muted" style="margin-bottom:0.75rem; font-size:0.85rem;">or enter a URL manually:</p>
-      {% else %}
-      <div class="alert alert-info" style="margin-bottom:1rem;">
-        No crawl results found. <a href="/">Start a crawl first →</a>
-      </div>
-      {% endif %}
-      <div class="form-group">
-        <label for="url-input">Page URL</label>
-        <input type="url" id="url-input" class="form-control" placeholder="https://example.com/page" />
-      </div>
-      <button id="check-btn" class="btn btn-primary" onclick="runFactCheck()">
-        🤖 Run Fact Check
-      </button>
-    </div>
+  <!-- Error -->
+  <div id="error-banner" class="hidden mb-5 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded-xl text-sm">
+    <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+    <span id="error-text"></span>
+  </div>
 
-    <!-- Loading state -->
-    <div id="loading-banner" class="loading-banner" style="display:none;">
-      <div class="spinner"></div>
-      <div>
-        <strong>Analyzing claims with Gemini AI…</strong>
-        <p class="muted" style="font-size:0.85rem;margin-top:0.2rem;">This may take a few seconds. Results are cached after the first run.</p>
+  <!-- Results section -->
+  <div id="results-section" class="hidden">
+
+    <!-- Summary stats -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div class="text-3xl font-bold text-gray-900 dark:text-white mb-1" id="stat-total">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Total Claims</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border-t-4 border-t-emerald-500 border-x border-b border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div class="text-3xl font-bold text-emerald-600 dark:text-emerald-400 mb-1" id="stat-true">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">True</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border-t-4 border-t-red-500 border-x border-b border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div class="text-3xl font-bold text-red-600 dark:text-red-400 mb-1" id="stat-false">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">False</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border-t-4 border-t-amber-500 border-x border-b border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div class="text-3xl font-bold text-amber-600 dark:text-amber-400 mb-1" id="stat-uncertain">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Uncertain</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border-t-4 border-t-indigo-500 border-x border-b border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm col-span-2 sm:col-span-1">
+        <div class="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mb-1" id="stat-score">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Reliability</div>
       </div>
     </div>
 
-    <!-- Error state -->
-    <div id="error-banner" class="alert alert-error" style="display:none;"></div>
-
-    <!-- Results section (hidden until data arrives) -->
-    <div id="results-section" style="display:none;">
-
-      <!-- Summary panel -->
-      <div class="fc-summary-grid">
-        <div class="fc-stat-card">
-          <div class="fc-stat-value" id="stat-total">—</div>
-          <div class="fc-stat-label">Total Claims</div>
-        </div>
-        <div class="fc-stat-card fc-stat-true">
-          <div class="fc-stat-value" id="stat-true">—</div>
-          <div class="fc-stat-label">True</div>
-        </div>
-        <div class="fc-stat-card fc-stat-false">
-          <div class="fc-stat-value" id="stat-false">—</div>
-          <div class="fc-stat-label">False</div>
-        </div>
-        <div class="fc-stat-card fc-stat-uncertain">
-          <div class="fc-stat-value" id="stat-uncertain">—</div>
-          <div class="fc-stat-label">Uncertain</div>
-        </div>
-        <div class="fc-stat-card fc-stat-score">
-          <div class="fc-stat-value" id="stat-score">—</div>
-          <div class="fc-stat-label">Reliability Score</div>
-        </div>
-      </div>
-
-      <!-- Results table -->
-      <div class="table-wrapper">
-        <table class="results-table">
+    <!-- Claims table -->
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden mb-4">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Extracted Claim</th>
-              <th>Reality / Correct Info</th>
-              <th>Verdict</th>
-              <th>Confidence</th>
-              <th>Explanation</th>
+            <tr class="border-b border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/50">
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider w-8">#</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Extracted Claim</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reality / Correct Info</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Verdict</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Confidence</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Explanation</th>
             </tr>
           </thead>
-          <tbody id="results-body"></tbody>
+          <tbody id="results-body" class="divide-y divide-gray-100 dark:divide-gray-800"></tbody>
         </table>
       </div>
-
-      <p class="muted" style="font-size:0.82rem;margin-top:0.5rem;">
-        ℹ️ Results are cached in <code>factcheck_results.json</code>. Clear the cache file to re-check.
-      </p>
     </div>
-  </main>
+    <p class="text-xs text-gray-400 dark:text-gray-600">ℹ️ Results cached in <code>factcheck_results.json</code>. Delete to re-check.</p>
+  </div>
 
-  <footer class="footer">
-    <p>Powered by <strong>Gemini AI</strong> + <strong>Scrapy</strong> + <strong>FastAPI</strong></p>
-  </footer>
+</div>
+{% endblock %}
 
-  <script>
-    // Sync select → input
-    document.getElementById('url-select') && document.getElementById('url-select').addEventListener('change', function () {
+{% block scripts %}
+<script>
+  var urlSelect = document.getElementById('url-select');
+  if (urlSelect) {
+    urlSelect.addEventListener('change', function () {
       document.getElementById('url-input').value = this.value;
     });
+  }
 
-    function verdictBadge(verdict) {
-      const v = (verdict || '').toLowerCase();
-      if (v.startsWith('true'))      return '<span class="fc-badge fc-badge-true">✅ True</span>';
-      if (v.startsWith('false'))     return '<span class="fc-badge fc-badge-false">❌ False</span>';
-      return '<span class="fc-badge fc-badge-uncertain">⚠️ Uncertain</span>';
-    }
+  function verdictBadge(v) {
+    v = (v || '').toLowerCase();
+    if (v.startsWith('true'))  return '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">✅ True</span>';
+    if (v.startsWith('false')) return '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">❌ False</span>';
+    return '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">⚠️ Uncertain</span>';
+  }
 
-    function scoreBar(raw) {
-      const n = parseFloat(raw);
-      if (isNaN(n)) return raw || '—';
-      const pct = Math.round(n * 100);
-      return `<div class="fc-score-bar"><div class="fc-score-fill" style="width:${pct}%"></div></div><span class="muted" style="font-size:0.8rem">${pct}%</span>`;
-    }
+  function scoreBar(raw) {
+    var n = parseFloat(raw);
+    if (isNaN(n)) return raw || '—';
+    var pct = Math.round(n * 100);
+    var color = pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+    return '<div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mb-1"><div class="' + color + ' h-1.5 rounded-full" style="width:' + pct + '%"></div></div><span class="text-xs text-gray-500">' + pct + '%</span>';
+  }
 
-    async function runFactCheck() {
-      const url = document.getElementById('url-input').value.trim();
-      if (!url) { alert('Please enter or select a URL.'); return; }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
-      document.getElementById('loading-banner').style.display = 'flex';
-      document.getElementById('error-banner').style.display = 'none';
-      document.getElementById('results-section').style.display = 'none';
-      document.getElementById('check-btn').disabled = true;
-
-      try {
-        const resp = await fetch('/factcheck', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-        const data = await resp.json();
-
-        if (!resp.ok || data.error) {
-          document.getElementById('error-banner').textContent = '⚠️ ' + (data.error || 'Unknown error');
-          document.getElementById('error-banner').style.display = 'block';
-          return;
-        }
-
-        const s = data.summary || {};
-        document.getElementById('stat-total').textContent     = s.number_of_claims ?? '—';
-        document.getElementById('stat-true').textContent      = s.true_claims ?? '—';
-        document.getElementById('stat-false').textContent     = s.false_claims ?? '—';
-        document.getElementById('stat-uncertain').textContent = s.uncertain_claims ?? '—';
-        const score = s.overall_reliability_score;
-        document.getElementById('stat-score').textContent = score != null ? (Math.round(score * 100) + '%') : '—';
-
-        const tbody = document.getElementById('results-body');
-        tbody.innerHTML = '';
-        (data.results || []).forEach(function (r, i) {
-          const tr = document.createElement('tr');
-          tr.innerHTML =
-            '<td class="row-num center">' + (i + 1) + '</td>' +
-            '<td class="fc-claim-cell">' + escHtml(r.claim || '—') + '</td>' +
-            '<td class="fc-info-cell">' + escHtml(r.correct_information || '—') + '</td>' +
-            '<td class="center nowrap">' + verdictBadge(r.verification) + '</td>' +
-            '<td class="center fc-conf-cell">' + scoreBar(r.confidence_score) + '</td>' +
-            '<td class="fc-expl-cell muted">' + escHtml(r.explanation || '—') + '</td>';
-          tbody.appendChild(tr);
-        });
-
-        document.getElementById('results-section').style.display = 'block';
-      } catch (err) {
-        document.getElementById('error-banner').textContent = '⚠️ Request failed: ' + err.message;
-        document.getElementById('error-banner').style.display = 'block';
-      } finally {
-        document.getElementById('loading-banner').style.display = 'none';
-        document.getElementById('check-btn').disabled = false;
+  async function runFactCheck() {
+    var url = document.getElementById('url-input').value.trim();
+    if (!url) { alert('Please enter or select a URL.'); return; }
+    var loading = document.getElementById('loading-banner');
+    var error   = document.getElementById('error-banner');
+    var results = document.getElementById('results-section');
+    var btn     = document.getElementById('check-btn');
+    loading.classList.remove('hidden'); loading.style.display = 'flex';
+    error.classList.add('hidden');
+    results.classList.add('hidden');
+    btn.disabled = true;
+    try {
+      var resp = await fetch('/factcheck', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+      var data = await resp.json();
+      if (!resp.ok || data.error) {
+        document.getElementById('error-text').textContent = '⚠️ ' + (data.error || 'Unknown error');
+        error.classList.remove('hidden'); error.style.display = 'flex';
+        return;
       }
+      var s = data.summary || {};
+      document.getElementById('stat-total').textContent     = s.number_of_claims ?? '—';
+      document.getElementById('stat-true').textContent      = s.true_claims ?? '—';
+      document.getElementById('stat-false').textContent     = s.false_claims ?? '—';
+      document.getElementById('stat-uncertain').textContent = s.uncertain_claims ?? '—';
+      var score = s.overall_reliability_score;
+      document.getElementById('stat-score').textContent = score != null ? Math.round(score * 100) + '%' : '—';
+      var tbody = document.getElementById('results-body');
+      tbody.innerHTML = '';
+      (data.results || []).forEach(function (r, i) {
+        var tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors';
+        tr.innerHTML =
+          '<td class="px-4 py-3 text-xs text-gray-400">' + (i+1) + '</td>' +
+          '<td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-[220px]">' + escHtml(r.claim || '—') + '</td>' +
+          '<td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[200px]">' + escHtml(r.correct_information || '—') + '</td>' +
+          '<td class="px-4 py-3 whitespace-nowrap">' + verdictBadge(r.verification) + '</td>' +
+          '<td class="px-4 py-3 min-w-[100px]">' + scoreBar(r.confidence_score) + '</td>' +
+          '<td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-500 max-w-[240px] hidden lg:table-cell">' + escHtml(r.explanation || '—') + '</td>';
+        tbody.appendChild(tr);
+      });
+      results.classList.remove('hidden');
+      lucide.createIcons();
+    } catch (err) {
+      document.getElementById('error-text').textContent = '⚠️ Request failed: ' + err.message;
+      error.classList.remove('hidden'); error.style.display = 'flex';
+    } finally {
+      loading.classList.add('hidden');
+      btn.disabled = false;
     }
-
-    function escHtml(str) {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
-    document.getElementById('nav-toggle').addEventListener('click', function () {
-      document.getElementById('nav-links').classList.toggle('open');
-    });
-  </script>
-</body>
-</html>
+  }
+</script>
+{% endblock %}

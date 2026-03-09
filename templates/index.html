@@ -1,102 +1,151 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Scrapy Web Crawler</title>
-  <link rel="stylesheet" href="/static/style.css" />
-</head>
-<body>
-  <nav class="navbar">
-    <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
-      <span></span><span></span><span></span>
-    </button>
-    <div class="nav-links" id="nav-links">
-      <a href="/results">Results</a>
-      <a href="/fact-check">🤖 Fact Check</a>
-      <a href="/site-map">🗺 Site Map</a>
-      <a href="/ask">🧠 Ask AI</a>
-      <a href="/account-manager">🔐 Accounts</a>
+{% extends "_base.html" %}
+{% block title %}Dashboard – Scrapy Crawler{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto">
+
+  <!-- Page header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Dashboard</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Monitor crawls, platform detection, and AI analysis results.</p>
+  </div>
+
+  <!-- Analytics cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex items-center justify-between mb-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+          <i data-lucide="file-text" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+        </div>
+        <span class="text-xs text-gray-400 dark:text-gray-600 font-medium">Total</span>
+      </div>
+      <div class="text-3xl font-bold text-gray-900 dark:text-white mb-1">{{ stats.total_pages }}</div>
+      <div class="text-sm text-gray-500 dark:text-gray-400">Pages Crawled</div>
     </div>
-  </nav>
 
-  <main class="container">
-    <section class="hero">
-      <h1>Web Crawler</h1>
-      <p class="subtitle">Enter a website URL and let Scrapy crawl it for you. Results are displayed in a searchable, paginated dashboard.</p>
-    </section>
-
-    {% if crawl_state.status == "running" %}
-    <div class="alert alert-info">
-      ⏳ A crawl is currently in progress for <strong>{{ crawl_state.url }}</strong>.
-      <a href="/results">View live status →</a>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex items-center justify-between mb-3">
+        <div class="w-9 h-9 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+          <i data-lucide="cpu" class="w-5 h-5 text-violet-600 dark:text-violet-400"></i>
+        </div>
+        <span class="text-xs text-gray-400 dark:text-gray-600 font-medium">Platform</span>
+      </div>
+      {% if crawl_state.platform %}
+      <div class="text-lg font-bold text-gray-900 dark:text-white mb-1 truncate">{{ crawl_state.platform }}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ crawl_state.strategy or '—' }}</div>
+      {% else %}
+      <div class="text-3xl font-bold text-gray-300 dark:text-gray-700 mb-1">—</div>
+      <div class="text-sm text-gray-500 dark:text-gray-400">Not detected yet</div>
+      {% endif %}
     </div>
-    {% endif %}
 
-    <div class="card crawl-card">
-      <h2>Start a New Crawl</h2>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex items-center justify-between mb-3">
+        <div class="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+          <i data-lucide="shield-check" class="w-5 h-5 text-emerald-600 dark:text-emerald-400"></i>
+        </div>
+        <span class="text-xs text-gray-400 dark:text-gray-600 font-medium">AI</span>
+      </div>
+      <div class="text-3xl font-bold text-gray-900 dark:text-white mb-1">{{ stats.factcheck_count }}</div>
+      <div class="text-sm text-gray-500 dark:text-gray-400">Fact Checks Run</div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div class="flex items-center justify-between mb-3">
+        <div class="w-9 h-9 rounded-xl {% if crawl_state.status == 'running' %}bg-amber-100 dark:bg-amber-900/40{% elif crawl_state.status == 'complete' %}bg-emerald-100 dark:bg-emerald-900/40{% elif crawl_state.status == 'error' %}bg-red-100 dark:bg-red-900/40{% else %}bg-gray-100 dark:bg-gray-800{% endif %} flex items-center justify-center">
+          <i data-lucide="activity" class="w-5 h-5 {% if crawl_state.status == 'running' %}text-amber-600 dark:text-amber-400{% elif crawl_state.status == 'complete' %}text-emerald-600 dark:text-emerald-400{% elif crawl_state.status == 'error' %}text-red-600 dark:text-red-400{% else %}text-gray-400{% endif %}"></i>
+        </div>
+        <span class="text-xs text-gray-400 dark:text-gray-600 font-medium">Status</span>
+      </div>
+      {% if crawl_state.status == 'running' %}
+        <div class="text-3xl font-bold text-amber-500 mb-1">Live</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400">Crawl in progress</div>
+      {% elif crawl_state.status == 'complete' %}
+        <div class="text-3xl font-bold text-emerald-500 mb-1">Done</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400">Last crawl complete</div>
+      {% elif crawl_state.status == 'error' %}
+        <div class="text-3xl font-bold text-red-500 mb-1">Error</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400">Last crawl failed</div>
+      {% else %}
+        <div class="text-3xl font-bold text-gray-400 mb-1">Idle</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400">No active crawl</div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Status alert -->
+  {% if crawl_state.status == 'running' %}
+  <div class="mb-6 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 px-4 py-3 rounded-xl text-sm">
+    <div class="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin shrink-0"></div>
+    <span>Crawling <strong>{{ crawl_state.url }}</strong>
+      {% if crawl_state.platform %} · <span class="font-semibold">{{ crawl_state.platform }}</span> detected{% endif %}
+      — <a href="/results" class="underline font-semibold">View live status →</a>
+    </span>
+  </div>
+  {% endif %}
+
+  <!-- Two column: crawl form + features -->
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+    <!-- Crawl form -->
+    <div class="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
+      <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-1">Start a New Crawl</h2>
+      <p class="text-sm text-gray-500 dark:text-gray-400 mb-5">Platform auto-detected. API/RSS extracted first, Scrapy as fallback.</p>
       <form action="/crawl" method="post" id="crawl-form">
-        <div class="form-group">
-          <label for="url">Website URL</label>
+        <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider" for="url">Website URL</label>
+        <div class="relative">
+          <i data-lucide="globe" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
           <input
-            type="url"
-            id="url"
-            name="url"
-            placeholder="https://example.com"
-            required
-            class="form-control"
-            {% if crawl_state.status == "running" %}disabled{% endif %}
+            type="url" id="url" name="url"
+            placeholder="https://example.com" required
+            class="w-full pl-10 pr-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 transition-all text-gray-900 dark:text-gray-100 placeholder-gray-400"
+            {% if crawl_state.status == 'running' %}disabled{% endif %}
           />
         </div>
         <button
-          type="submit"
-          class="btn btn-primary"
-          id="submit-btn"
-          {% if crawl_state.status == "running" %}disabled{% endif %}
+          type="submit" id="submit-btn"
+          class="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
+          {% if crawl_state.status == 'running' %}disabled{% endif %}
         >
-          🔍 Crawl Website
+          <i data-lucide="search" class="w-4 h-4"></i> Crawl Website
         </button>
       </form>
+      <a href="/platform-detection" class="mt-4 flex items-center justify-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+        <i data-lucide="cpu" class="w-3 h-3"></i> Detect platform without crawling
+      </a>
     </div>
 
-    <div class="features">
-      <div class="feature-card">
-        <div class="feature-icon">🔗</div>
-        <h3>Internal Link Following</h3>
-        <p>Crawls all internal pages within the same domain automatically.</p>
+    <!-- Feature cards -->
+    <div class="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% set features = [
+        ('link-2',       'indigo',   'Internal Link Following',  'Crawls all pages on the same domain automatically.'),
+        ('file-search',  'violet',   'Rich Data Extraction',     'Extracts titles, authors, dates, headings & full text.'),
+        ('cpu',          'sky',      'Platform Detection',       'Auto-detects CMS and picks the fastest extraction method.'),
+        ('network',      'emerald',  'Interactive Site Map',     'Visualise all page connections in a dark-theme graph.'),
+      ] %}
+      {% for icon, color, title, desc in features %}
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-all group">
+        <div class="w-10 h-10 rounded-xl bg-{{ color }}-100 dark:bg-{{ color }}-900/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+          <i data-lucide="{{ icon }}" class="w-5 h-5 text-{{ color }}-600 dark:text-{{ color }}-400"></i>
+        </div>
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">{{ title }}</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{{ desc }}</p>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">📄</div>
-        <h3>Rich Data Extraction</h3>
-        <p>Extracts titles, headings, meta descriptions, and full text content.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📊</div>
-        <h3>Searchable Dashboard</h3>
-        <p>Browse, search, and paginate through all crawled pages.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🗺</div>
-        <h3>Site Structure Map</h3>
-        <p>Visualise how pages connect through an interactive dark-theme graph.</p>
-      </div>
+      {% endfor %}
     </div>
-  </main>
 
-  <footer class="footer">
-    <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Jinja2</strong></p>
-  </footer>
+  </div>
+</div>
+{% endblock %}
 
-  <script>
-    document.getElementById('crawl-form').addEventListener('submit', function () {
-      const btn = document.getElementById('submit-btn');
-      btn.textContent = '⏳ Starting crawl…';
-      btn.disabled = true;
-    });
-    document.getElementById('nav-toggle').addEventListener('click', function () {
-      document.getElementById('nav-links').classList.toggle('open');
-    });
-  </script>
-</body>
-</html>
+{% block scripts %}
+<script>
+  document.getElementById('crawl-form').addEventListener('submit', function () {
+    var btn = document.getElementById('submit-btn');
+    btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg> Starting…';
+    btn.disabled = true;
+  });
+</script>
+{% endblock %}

@@ -1,121 +1,102 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{ page.title if page else "Page Not Found" }} – Scrapy Web Crawler</title>
-  <link rel="stylesheet" href="/static/style.css" />
-</head>
-<body>
-  <nav class="navbar">
-    <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
-      <span></span><span></span><span></span>
-    </button>
-    <div class="nav-links" id="nav-links">
-      <a href="/">Home</a>
-      <a href="/results">Results</a>
-      <a href="/fact-check">🤖 Fact Check</a>
-      <a href="/site-map">🗺 Site Map</a>
-      <a href="/ask">🧠 Ask AI</a>
-      <a href="/account-manager">🔐 Accounts</a>
-    </div>
-  </nav>
+{% extends "_base.html" %}
+{% block title %}{{ page.title if page else "Page Not Found" }} – Scrapy Crawler{% endblock %}
 
-  <main class="container">
-    {% if page %}
+{% block content %}
+<div class="p-6 max-w-4xl mx-auto">
+  {% if page %}
 
-    <div class="page-header">
-      <a href="/results" class="btn btn-ghost">← Back to Results</a>
-      <a href="{{ page.page_url }}" target="_blank" rel="noopener" class="btn btn-secondary">Open page ↗</a>
-    </div>
+  <!-- Back / Open buttons -->
+  <div class="flex items-center gap-2 mb-6 flex-wrap">
+    <a href="/results" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Results
+    </a>
+    <a href="{{ page.page_url }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors">
+      Open Page <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+    </a>
+  </div>
 
-    <h1 class="page-title">{{ page.title or "(No title)" }}</h1>
-    <p class="page-url-label muted">{{ page.page_url }}</p>
-
-    {% if page.meta_description %}
-    <div class="card detail-card">
-      <h2>Meta Description</h2>
-      <p>{{ page.meta_description }}</p>
-    </div>
+  <!-- Article header -->
+  <h1 class="text-3xl font-bold text-gray-900 dark:text-white leading-tight mb-3">{{ page.title or "(No title)" }}</h1>
+  <div class="flex flex-wrap items-center gap-3 text-sm text-gray-500 dark:text-gray-400 mb-6 pb-6 border-b border-gray-200 dark:border-gray-800">
+    {% if page.author %}
+    <span class="flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i> {{ page.author }}</span>
     {% endif %}
-
-    <!-- ── Headings ───────────────────────────────────────────────────── -->
-    {% if page.headings.h1 or page.headings.h2 or page.headings.h3 %}
-    <div class="card detail-card">
-      <h2>Headings</h2>
-      {% if page.headings.h1 %}
-      <div class="heading-group">
-        <span class="heading-tag h1-tag">H1</span>
-        <ul>
-          {% for h in page.headings.h1 %}<li>{{ h }}</li>{% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-      {% if page.headings.h2 %}
-      <div class="heading-group">
-        <span class="heading-tag h2-tag">H2</span>
-        <ul>
-          {% for h in page.headings.h2 %}<li>{{ h }}</li>{% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-      {% if page.headings.h3 %}
-      <div class="heading-group">
-        <span class="heading-tag h3-tag">H3</span>
-        <ul>
-          {% for h in page.headings.h3 %}<li>{{ h }}</li>{% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-    </div>
+    {% if page.publish_date %}
+    <span class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> {{ page.publish_date[:10] if page.publish_date else '' }}</span>
     {% endif %}
-
-    <!-- ── Text Content ───────────────────────────────────────────────── -->
-    {% if page.text_content %}
-    <div class="card detail-card">
-      <h2>Text Content</h2>
-      <div class="text-content">{{ page.text_content }}</div>
-    </div>
+    {% if page.crawl_timestamp %}
+    <span class="flex items-center gap-1.5"><i data-lucide="clock" class="w-3.5 h-3.5"></i> Crawled {{ page.crawl_timestamp[:19].replace("T", " ") }}</span>
     {% endif %}
+    {% if page.extraction_strategy %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-medium rounded-full border border-indigo-200 dark:border-indigo-800">
+      <i data-lucide="cpu" class="w-3 h-3"></i> {{ page.extraction_strategy }}
+    </span>
+    {% endif %}
+  </div>
+  <p class="text-xs text-gray-400 dark:text-gray-600 break-all mb-6">{{ page.page_url }}</p>
 
-    <!-- ── Internal Links ────────────────────────────────────────────── -->
-    {% if page.internal_links %}
-    <div class="card detail-card">
-      <h2>Internal Links <span class="badge">{{ page.internal_links | length }}</span></h2>
-      <ul class="link-list">
-        {% for link in page.internal_links %}
-        <li>
-          <a href="{{ link }}" target="_blank" rel="noopener">{{ link }}</a>
-          &nbsp;
-          <a href="/page?url={{ link | urlencode }}" class="btn btn-sm">Detail</a>
-        </li>
-        {% endfor %}
+  <!-- Meta description -->
+  {% if page.meta_description %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 mb-4 shadow-sm">
+    <h2 class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-2">Meta Description</h2>
+    <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{{ page.meta_description }}</p>
+  </div>
+  {% endif %}
+
+  <!-- Headings -->
+  {% if page.headings.h1 or page.headings.h2 or page.headings.h3 %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 mb-4 shadow-sm">
+    <h2 class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-3">Headings</h2>
+    {% for tag, items, cls in [('H1', page.headings.h1, 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'), ('H2', page.headings.h2, 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300'), ('H3', page.headings.h3, 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300')] %}
+    {% if items %}
+    <div class="flex gap-2 items-start mb-2">
+      <span class="shrink-0 text-xs font-bold px-1.5 py-0.5 rounded {{ cls }} mt-0.5">{{ tag }}</span>
+      <ul class="text-sm text-gray-700 dark:text-gray-300 space-y-0.5">
+        {% for h in items %}<li>{{ h }}</li>{% endfor %}
       </ul>
     </div>
     {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
 
-    <!-- ── Metadata ───────────────────────────────────────────────────── -->
-    <div class="card detail-card meta-footer">
-      <p class="muted">Crawled at: {{ page.crawl_timestamp[:19].replace("T", " ") if page.crawl_timestamp else "—" }}</p>
+  <!-- Text content -->
+  {% if page.text_content %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 mb-4 shadow-sm">
+    <h2 class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-3">Content</h2>
+    <div class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed max-h-80 overflow-y-auto bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700 whitespace-pre-wrap font-mono text-xs">{{ page.text_content }}</div>
+  </div>
+  {% endif %}
+
+  <!-- Internal links -->
+  {% if page.internal_links %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 mb-4 shadow-sm">
+    <h2 class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-3">
+      Internal Links
+      <span class="ml-2 px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-full">{{ page.internal_links | length }}</span>
+    </h2>
+    <ul class="divide-y divide-gray-100 dark:divide-gray-800">
+      {% for link in page.internal_links %}
+      <li class="flex items-center justify-between gap-3 py-2 text-sm">
+        <a href="{{ link }}" target="_blank" rel="noopener" class="text-indigo-600 dark:text-indigo-400 hover:underline truncate flex-1">{{ link }}</a>
+        <a href="/page?url={{ link | urlencode }}" class="shrink-0 text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">Detail</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-16 text-center shadow-sm">
+    <div class="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-4">
+      <i data-lucide="file-x" class="w-8 h-8 text-gray-400 dark:text-gray-600"></i>
     </div>
-
-    {% else %}
-    <div class="empty-state">
-      <p>Page not found in crawl results.</p>
-      {% if url %}<p class="muted">URL: {{ url }}</p>{% endif %}
-      <a href="/results" class="btn btn-primary">Back to Results</a>
-    </div>
-    {% endif %}
-  </main>
-
-  <footer class="footer">
-    <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Jinja2</strong></p>
-  </footer>
-  <script>
-    document.getElementById('nav-toggle').addEventListener('click', function () {
-      document.getElementById('nav-links').classList.toggle('open');
-    });
-  </script>
-</body>
-</html>
+    <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-2">Page not found</h3>
+    {% if url %}<p class="text-xs text-gray-400 dark:text-gray-600 mb-4 break-all">{{ url }}</p>{% endif %}
+    <a href="/results" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Results
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

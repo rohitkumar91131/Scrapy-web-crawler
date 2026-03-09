@@ -1,0 +1,11 @@
+{
+  "job_id": "a8a832319e46",
+  "url": "https://example.com",
+  "status": "error",
+  "pages_crawled": 0,
+  "platform": "Generic",
+  "strategy": "Scrapy HTML Crawl",
+  "started_at": "2026-03-09T22:49:37.246090+00:00",
+  "finished_at": "2026-03-09T22:49:37.268716+00:00",
+  "error": "/usr/bin/python: No module named scrapy"
+}
