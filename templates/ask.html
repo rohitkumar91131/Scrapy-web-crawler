@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ask AI – Scrapy Web Crawler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a class="brand" href="/">🕷 Scrapy Crawler</a>
+    <a href="/results">Results</a>
+    <a href="/fact-check">🤖 Fact Check</a>
+    <a href="/site-map">🗺 Site Map</a>
+    <a href="/ask" class="active">🧠 Ask AI</a>
+  </nav>
+
+  <main class="container">
+    <section class="hero">
+      <h1>Ask AI</h1>
+      <p class="subtitle">Ask any question about the crawled website. Gemini AI answers using only the pages that were crawled.</p>
+    </section>
+
+    <!-- Info banner -->
+    <div class="alert alert-info" id="no-index-banner" style="display:none;">
+      No crawled content found. <a href="/">Start a crawl first →</a>
+    </div>
+
+    <!-- Chat window -->
+    <div class="ask-layout">
+
+      <!-- Conversation area -->
+      <div class="chat-panel card">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg chat-msg-ai">
+            <div class="chat-avatar">🧠</div>
+            <div class="chat-bubble">
+              Hello! I can answer questions about the crawled website content.
+              Type a question below to get started.
+            </div>
+          </div>
+        </div>
+
+        <!-- Input row -->
+        <div class="chat-input-row">
+          <input
+            type="text"
+            id="question-input"
+            class="form-control chat-input"
+            placeholder="Ask a question about the crawled site…"
+            autocomplete="off"
+          />
+          <button class="btn btn-primary ask-send-btn" id="send-btn" onclick="sendQuestion()">
+            ➤ Ask
+          </button>
+        </div>
+      </div>
+
+      <!-- Sources sidebar -->
+      <aside class="sources-panel" id="sources-panel" style="display:none;">
+        <div class="card">
+          <h3 class="sources-heading">📄 Source Pages</h3>
+          <p class="muted sources-hint">Pages used to answer your last question:</p>
+          <ul class="sources-list" id="sources-list"></ul>
+        </div>
+      </aside>
+
+    </div><!-- /ask-layout -->
+
+    <p class="muted" style="font-size:0.82rem;margin-top:0.75rem;text-align:center;">
+      ℹ️ Answers are cached in <code>qa_cache.json</code>. Clear the file to ask fresh.
+    </p>
+  </main>
+
+  <footer class="footer">
+    <p>Powered by <strong>Gemini AI</strong> + <strong>Scrapy</strong> + <strong>FastAPI</strong></p>
+  </footer>
+
+  <script>
+    const chatMessages = document.getElementById('chat-messages');
+    const sourcesList  = document.getElementById('sources-list');
+    const sourcesPanel = document.getElementById('sources-panel');
+    const sendBtn      = document.getElementById('send-btn');
+    const questionInput = document.getElementById('question-input');
+
+    // Allow Enter key to submit
+    questionInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuestion();
+      }
+    });
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function addMessage(role, html) {
+      const div = document.createElement('div');
+      div.className = 'chat-msg chat-msg-' + role;
+      if (role === 'user') {
+        div.innerHTML = '<div class="chat-bubble chat-bubble-user">' + html + '</div><div class="chat-avatar chat-avatar-user">👤</div>';
+      } else {
+        div.innerHTML = '<div class="chat-avatar">🧠</div><div class="chat-bubble">' + html + '</div>';
+      }
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return div;
+    }
+
+    function addThinkingIndicator() {
+      return addMessage('ai', '<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>');
+    }
+
+    function renderSources(sources) {
+      sourcesList.innerHTML = '';
+      if (!sources || sources.length === 0) {
+        sourcesPanel.style.display = 'none';
+        return;
+      }
+      sources.forEach(function (url) {
+        const li = document.createElement('li');
+        li.className = 'source-item';
+        li.innerHTML = '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" title="' + escHtml(url) + '">' + escHtml(url) + '</a>';
+        sourcesList.appendChild(li);
+      });
+      sourcesPanel.style.display = 'block';
+    }
+
+    async function sendQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) return;
+
+      // Show user message
+      addMessage('user', escHtml(question));
+      questionInput.value = '';
+      sendBtn.disabled = true;
+
+      // Show thinking indicator
+      const thinkingEl = addThinkingIndicator();
+
+      try {
+        const resp = await fetch('/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question })
+        });
+        const data = await resp.json();
+
+        // Remove thinking indicator
+        thinkingEl.remove();
+
+        if (!resp.ok || data.error) {
+          if (resp.status === 404) {
+            document.getElementById('no-index-banner').style.display = 'block';
+          }
+          addMessage('ai', '⚠️ ' + escHtml(data.error || 'An unknown error occurred.'));
+          return;
+        }
+
+        // Render answer
+        const answerHtml = escHtml(data.answer || '').replace(/\n/g, '<br>');
+        addMessage('ai', answerHtml);
+
+        // Render sources
+        renderSources(data.sources);
+
+      } catch (err) {
+        thinkingEl.remove();
+        addMessage('ai', '⚠️ Request failed: ' + escHtml(err.message));
+      } finally {
+        sendBtn.disabled = false;
+        questionInput.focus();
+      }
+    }
+  </script>
+</body>
+</html>

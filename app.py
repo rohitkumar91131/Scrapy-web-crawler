@@ -20,6 +20,8 @@ RESULTS_FILE = os.path.join(BASE_DIR, "results.json")
 SPIDER_FILE = os.path.join(BASE_DIR, "crawler", "spider.py")
 FACTCHECK_FILE = os.path.join(BASE_DIR, "factcheck_results.json")
 GRAPH_FILE = os.path.join(BASE_DIR, "site_graph.json")
+KNOWLEDGE_INDEX_FILE = os.path.join(BASE_DIR, "knowledge_index.json")
+QA_CACHE_FILE = os.path.join(BASE_DIR, "qa_cache.json")
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -73,6 +75,9 @@ def _run_crawl(url: str) -> None:
                 _crawl_state["status"] = "error"
                 err = (result.stderr or "").strip()
                 _crawl_state["message"] = err[-1000:] if err else "Crawl failed."
+        if result.returncode == 0:
+            api_key = os.environ.get("GOOGLE_AI_STUDIO_API_KEY", "")
+            _build_knowledge_index(api_key)
     except subprocess.TimeoutExpired:
         with _state_lock:
             _crawl_state["status"] = "error"
@@ -127,6 +132,93 @@ def _build_site_graph() -> dict:
         pass
 
     return graph
+
+
+# ---------------------------------------------------------------------------
+# Knowledge-index helpers
+# ---------------------------------------------------------------------------
+
+class AskRequest(BaseModel):
+    question: str
+
+
+def _load_knowledge_index() -> list:
+    if not os.path.exists(KNOWLEDGE_INDEX_FILE):
+        return []
+    try:
+        with open(KNOWLEDGE_INDEX_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _load_qa_cache() -> dict:
+    if not os.path.exists(QA_CACHE_FILE):
+        return {}
+    try:
+        with open(QA_CACHE_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_qa_cache(cache: dict) -> None:
+    try:
+        with open(QA_CACHE_FILE, "w", encoding="utf-8") as fh:
+            json.dump(cache, fh, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def _summarize_page(page: dict, api_key: str) -> str:
+    """Generate a 2-3 sentence summary for a crawled page using Gemini."""
+    client = genai.Client(api_key=api_key)
+    title = page.get("title", "Untitled")
+    text = page.get("text_content", "")[:3000]
+    prompt = (
+        f"Summarize the following web page content in 2-3 concise sentences.\n"
+        f"Page title: {title}\n\n"
+        f"Content:\n{text}\n\n"
+        "Return only the summary text, no additional formatting."
+    )
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=prompt,
+    )
+    return response.text.strip()
+
+
+def _build_knowledge_index(api_key: str) -> None:
+    """Build knowledge_index.json with one entry per crawled page."""
+    import logging
+    pages = _load_results()
+    knowledge_index = []
+    for page in pages:
+        url = page.get("page_url", "")
+        title = page.get("title", "Untitled")
+        content = page.get("text_content", "")
+        summary = ""
+        if api_key and content:
+            try:
+                summary = _summarize_page(page, api_key)
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger(__name__).warning("Summary failed for %s: %s", url, exc)
+                summary = content[:300]
+        else:
+            summary = content[:300]
+        knowledge_index.append({
+            "url": url,
+            "title": title,
+            "summary": summary,
+            "content": content,
+        })
+    try:
+        with open(KNOWLEDGE_INDEX_FILE, "w", encoding="utf-8") as fh:
+            json.dump(knowledge_index, fh, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -400,3 +492,87 @@ async def factcheck(body: FactCheckRequest):
     _save_factcheck_cache(cache)
 
     return JSONResponse(response_data)
+
+
+# ---------------------------------------------------------------------------
+# AI Knowledge Query routes
+# ---------------------------------------------------------------------------
+
+@app.get("/ask", response_class=HTMLResponse)
+async def ask_page(request: Request):
+    """AI Knowledge Query chat interface."""
+    return templates.TemplateResponse("ask.html", {"request": request})
+
+
+@app.post("/ask")
+async def ask(body: AskRequest):
+    """Answer a question about crawled website content using Gemini AI."""
+    question = body.question.strip()
+    if not question:
+        return JSONResponse({"error": "Question cannot be empty."}, status_code=400)
+
+    api_key = os.environ.get("GOOGLE_AI_STUDIO_API_KEY", "")
+    if not api_key:
+        return JSONResponse(
+            {"error": "GOOGLE_AI_STUDIO_API_KEY environment variable is not set."},
+            status_code=500,
+        )
+
+    # Return cached answer if available
+    cache = _load_qa_cache()
+    if question in cache:
+        return JSONResponse(cache[question])
+
+    # Load the knowledge index built after the last crawl
+    knowledge = _load_knowledge_index()
+    if not knowledge:
+        return JSONResponse(
+            {"error": "No crawled content found. Please crawl a website first."},
+            status_code=404,
+        )
+
+    # Build context: include summary + first 800 chars of content per page (up to 50 pages)
+    context_parts = []
+    for entry in knowledge[:50]:
+        context_parts.append(
+            f"URL: {entry.get('url', '')}\n"
+            f"Title: {entry.get('title', 'Untitled')}\n"
+            f"Summary: {entry.get('summary', '')}\n"
+            f"Content snippet: {entry.get('content', '')[:800]}"
+        )
+    context = "\n\n---\n\n".join(context_parts)
+
+    prompt = (
+        "You are analyzing content from a crawled website.\n"
+        "Answer the user's question using only the provided website content.\n"
+        "Also list the exact URLs of the pages most relevant to your answer.\n\n"
+        f"Website content:\n{context}\n\n"
+        f"User question: {question}\n\n"
+        "Return JSON format only, no markdown or additional text:\n"
+        "{\n"
+        '  "answer": "...",\n'
+        '  "sources": ["url1", "url2"]\n'
+        "}"
+    )
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+        )
+        raw = response.text.strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        result = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"error": f"AI query failed: {exc}"},
+            status_code=500,
+        )
+
+    # Persist to cache
+    cache[question] = result
+    _save_qa_cache(cache)
+
+    return JSONResponse(result)
