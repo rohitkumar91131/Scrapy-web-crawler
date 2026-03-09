@@ -17,6 +17,10 @@
     .navbar a:hover,
     .navbar a.active   { color: #fff; opacity: 1; }
     .navbar .brand     { color: #fff !important; opacity: 1 !important; }
+    .nav-toggle span   { background: #a5b4fc; }
+    @media (max-width: 768px) {
+      .nav-links a { border-top-color: rgba(165,180,252,0.15); }
+    }
 
     /* ── Layout ────────────────────────────────────────────────── */
     #sm-wrap {
@@ -164,10 +168,16 @@
 <body>
   <nav class="navbar">
     <a class="brand" href="/">🕷 Scrapy Crawler</a>
-    <a href="/">Home</a>
-    <a href="/results">Results</a>
-    <a href="/fact-check">🤖 Fact Check</a>
-    <a href="/site-map" class="active">🗺 Site Map</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="nav-links">
+      <a href="/">Home</a>
+      <a href="/results">Results</a>
+      <a href="/fact-check">🤖 Fact Check</a>
+      <a href="/site-map" class="active">🗺 Site Map</a>
+      <a href="/ask">🧠 Ask AI</a>
+    </div>
   </nav>
 
   <div id="sm-wrap">
@@ -700,6 +710,10 @@
     }
 
   })();
+
+    document.getElementById('nav-toggle').addEventListener('click', function () {
+      document.getElementById('nav-links').classList.toggle('open');
+    });
   </script>
 </body>
 </html>
