@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scrapy Web Crawler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a class="brand" href="/">🕷 Scrapy Crawler</a>
+    <a href="/results">Results</a>
+  </nav>
+
+  <main class="container">
+    <section class="hero">
+      <h1>Web Crawler</h1>
+      <p class="subtitle">Enter a website URL and let Scrapy crawl it for you. Results are displayed in a searchable, paginated dashboard.</p>
+    </section>
+
+    {% if crawl_state.status == "running" %}
+    <div class="alert alert-info">
+      ⏳ A crawl is currently in progress for <strong>{{ crawl_state.url }}</strong>.
+      <a href="/results">View live status →</a>
+    </div>
+    {% endif %}
+
+    <div class="card crawl-card">
+      <h2>Start a New Crawl</h2>
+      <form action="/crawl" method="post" id="crawl-form">
+        <div class="form-group">
+          <label for="url">Website URL</label>
+          <input
+            type="url"
+            id="url"
+            name="url"
+            placeholder="https://example.com"
+            required
+            class="form-control"
+            {% if crawl_state.status == "running" %}disabled{% endif %}
+          />
+        </div>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          id="submit-btn"
+          {% if crawl_state.status == "running" %}disabled{% endif %}
+        >
+          🔍 Crawl Website
+        </button>
+      </form>
+    </div>
+
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon">🔗</div>
+        <h3>Internal Link Following</h3>
+        <p>Crawls all internal pages within the same domain automatically.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📄</div>
+        <h3>Rich Data Extraction</h3>
+        <p>Extracts titles, headings, meta descriptions, and full text content.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Searchable Dashboard</h3>
+        <p>Browse, search, and paginate through all crawled pages.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Jinja2</strong></p>
+  </footer>
+
+  <script>
+    document.getElementById('crawl-form').addEventListener('submit', function () {
+      const btn = document.getElementById('submit-btn');
+      btn.textContent = '⏳ Starting crawl…';
+      btn.disabled = true;
+    });
+  </script>
+</body>
+</html>

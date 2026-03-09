@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ page.title if page else "Page Not Found" }} – Scrapy Web Crawler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a class="brand" href="/">🕷 Scrapy Crawler</a>
+    <a href="/">Home</a>
+    <a href="/results">Results</a>
+  </nav>
+
+  <main class="container">
+    {% if page %}
+
+    <div class="page-header">
+      <a href="/results" class="btn btn-ghost">← Back to Results</a>
+      <a href="{{ page.page_url }}" target="_blank" rel="noopener" class="btn btn-secondary">Open page ↗</a>
+    </div>
+
+    <h1 class="page-title">{{ page.title or "(No title)" }}</h1>
+    <p class="page-url-label muted">{{ page.page_url }}</p>
+
+    {% if page.meta_description %}
+    <div class="card detail-card">
+      <h2>Meta Description</h2>
+      <p>{{ page.meta_description }}</p>
+    </div>
+    {% endif %}
+
+    <!-- ── Headings ───────────────────────────────────────────────────── -->
+    {% if page.headings.h1 or page.headings.h2 or page.headings.h3 %}
+    <div class="card detail-card">
+      <h2>Headings</h2>
+      {% if page.headings.h1 %}
+      <div class="heading-group">
+        <span class="heading-tag h1-tag">H1</span>
+        <ul>
+          {% for h in page.headings.h1 %}<li>{{ h }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if page.headings.h2 %}
+      <div class="heading-group">
+        <span class="heading-tag h2-tag">H2</span>
+        <ul>
+          {% for h in page.headings.h2 %}<li>{{ h }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if page.headings.h3 %}
+      <div class="heading-group">
+        <span class="heading-tag h3-tag">H3</span>
+        <ul>
+          {% for h in page.headings.h3 %}<li>{{ h }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- ── Text Content ───────────────────────────────────────────────── -->
+    {% if page.text_content %}
+    <div class="card detail-card">
+      <h2>Text Content</h2>
+      <div class="text-content">{{ page.text_content }}</div>
+    </div>
+    {% endif %}
+
+    <!-- ── Internal Links ────────────────────────────────────────────── -->
+    {% if page.internal_links %}
+    <div class="card detail-card">
+      <h2>Internal Links <span class="badge">{{ page.internal_links | length }}</span></h2>
+      <ul class="link-list">
+        {% for link in page.internal_links %}
+        <li>
+          <a href="{{ link }}" target="_blank" rel="noopener">{{ link }}</a>
+          &nbsp;
+          <a href="/page?url={{ link | urlencode }}" class="btn btn-sm">Detail</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- ── Metadata ───────────────────────────────────────────────────── -->
+    <div class="card detail-card meta-footer">
+      <p class="muted">Crawled at: {{ page.crawl_timestamp[:19].replace("T", " ") if page.crawl_timestamp else "—" }}</p>
+    </div>
+
+    {% else %}
+    <div class="empty-state">
+      <p>Page not found in crawl results.</p>
+      {% if url %}<p class="muted">URL: {{ url }}</p>{% endif %}
+      <a href="/results" class="btn btn-primary">Back to Results</a>
+    </div>
+    {% endif %}
+  </main>
+
+  <footer class="footer">
+    <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Jinja2</strong></p>
+  </footer>
+</body>
+</html>
