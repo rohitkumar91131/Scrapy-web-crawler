@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account Manager – Scrapy Web Crawler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    .status-badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .status-verified   { background: #d1fae5; color: #065f46; }
+    .status-pending    { background: #fef3c7; color: #92400e; }
+    .status-failed     { background: #fee2e2; color: #991b1b; }
+    .status-success    { background: #d1fae5; color: #065f46; }
+
+    .account-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    .account-table th,
+    .account-table td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 0.88rem; }
+    .account-table th { background: #f9fafb; font-weight: 700; color: #374151; }
+    .account-table tr:last-child td { border-bottom: none; }
+    .account-table td.email-cell { font-family: monospace; word-break: break-all; }
+
+    .create-section { margin-bottom: 2rem; }
+    #create-result  { margin-top: 1rem; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid #d1d5db;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a class="brand" href="/">🕷 Scrapy Crawler</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="nav-links">
+      <a href="/results">Results</a>
+      <a href="/fact-check">🤖 Fact Check</a>
+      <a href="/site-map">🗺 Site Map</a>
+      <a href="/ask">🧠 Ask AI</a>
+      <a href="/account-manager" class="active">🔐 Accounts</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <section class="hero">
+      <h1>Account Manager</h1>
+      <p class="subtitle">
+        Automatically create accounts on websites that require email verification.
+        A temporary email address is generated, signup is automated via Playwright,
+        and the verification link is extracted and clicked — all without manual intervention.
+      </p>
+    </section>
+
+    <!-- Create account form -->
+    <div class="card crawl-card create-section">
+      <h2>Create a New Account</h2>
+      <p style="font-size:0.9rem;color:#6b7280;margin-bottom:1rem;">
+        Provide the signup and login URLs for the target site. A random temporary
+        email will be generated automatically using the <strong>1secmail</strong> service.
+      </p>
+      <div class="form-group">
+        <label for="signup-url">Signup Page URL</label>
+        <input type="url" id="signup-url" class="form-control"
+               placeholder="https://example.com/register" required />
+      </div>
+      <div class="form-group">
+        <label for="login-url">Login Page URL</label>
+        <input type="url" id="login-url" class="form-control"
+               placeholder="https://example.com/login" required />
+      </div>
+      <div class="form-group">
+        <label for="password">Password to use</label>
+        <input type="password" id="password" class="form-control"
+               placeholder="At least 8 characters" required />
+      </div>
+      <button class="btn btn-primary" id="create-btn" onclick="createAccount()">
+        ➕ Create Account
+      </button>
+      <div id="create-result"></div>
+    </div>
+
+    <!-- Accounts table -->
+    <div class="card">
+      <h2>Created Accounts <span style="font-size:0.85rem;color:#6b7280;font-weight:400;">({{ accounts|length }} total)</span></h2>
+      {% if accounts %}
+      <div style="overflow-x:auto;">
+        <table class="account-table" id="accounts-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Email Used</th>
+              <th>Username</th>
+              <th>Signup URL</th>
+              <th>Verification</th>
+              <th>Login</th>
+              <th>Session File</th>
+              <th>Created At</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for acc in accounts %}
+            <tr id="row-{{ acc.index }}">
+              <td>{{ acc.index + 1 }}</td>
+              <td class="email-cell">{{ acc.email or '—' }}</td>
+              <td>{{ acc.username or '—' }}</td>
+              <td style="max-width:180px;word-break:break-all;">
+                <a href="{{ acc.signup_url }}" target="_blank" rel="noopener">{{ acc.signup_url }}</a>
+              </td>
+              <td>
+                {% set vs = acc.verification_status %}
+                {% if vs == 'verified' %}
+                  <span class="status-badge status-verified">✔ Verified</span>
+                {% elif vs == 'pending' %}
+                  <span class="status-badge status-pending"><span class="spinner"></span>Pending</span>
+                {% else %}
+                  <span class="status-badge status-failed">✖ Failed</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set ls = acc.login_status %}
+                {% if ls == 'success' %}
+                  <span class="status-badge status-success">✔ OK</span>
+                {% elif ls == 'pending' %}
+                  <span class="status-badge status-pending"><span class="spinner"></span>Pending</span>
+                {% else %}
+                  <span class="status-badge status-failed">✖ Failed</span>
+                {% endif %}
+              </td>
+              <td style="font-family:monospace;font-size:0.8rem;">
+                {{ acc.session_file or '—' }}
+              </td>
+              <td style="white-space:nowrap;font-size:0.8rem;">
+                {{ acc.created_at[:19].replace('T',' ') if acc.created_at else '—' }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:#6b7280;margin-top:1rem;">No accounts created yet. Use the form above to get started.</p>
+      {% endif %}
+    </div>
+
+    <!-- How it works -->
+    <div class="features" style="margin-top:2rem;">
+      <div class="feature-card">
+        <div class="feature-icon">📧</div>
+        <h3>Temporary Email</h3>
+        <p>A random address is generated via the <strong>1secmail</strong> API — no registration needed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>Playwright Automation</h3>
+        <p>Headless Chromium fills the signup form and submits it automatically.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔗</div>
+        <h3>Link Extraction</h3>
+        <p>The inbox is polled every few seconds until the verification email arrives and the link is clicked.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💾</div>
+        <h3>Session Saved</h3>
+        <p>Cookies and localStorage are written to <code>session_N.json</code> for reuse during crawling.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Playwright</strong></p>
+  </footer>
+
+  <script>
+    document.getElementById('nav-toggle').addEventListener('click', function () {
+      document.getElementById('nav-links').classList.toggle('open');
+    });
+
+    // Poll pending accounts every 5 s and refresh status cells
+    function refreshPendingAccounts() {
+      const rows = document.querySelectorAll('tr[id^="row-"]');
+      rows.forEach(function (row) {
+        const pendingBadges = row.querySelectorAll('.status-badge.status-pending');
+        if (pendingBadges.length === 0) return;
+        const idx = row.id.replace('row-', '');
+        fetch('/account-manager/status/' + idx)
+          .then(r => r.json())
+          .then(function (acc) {
+            if (acc.verification_status === 'pending') return; // still running
+            // Reload the page to show updated data
+            window.location.reload();
+          })
+          .catch(function () {});
+      });
+    }
+
+    setInterval(refreshPendingAccounts, 5000);
+
+    function createAccount() {
+      const signupUrl = document.getElementById('signup-url').value.trim();
+      const loginUrl  = document.getElementById('login-url').value.trim();
+      const password  = document.getElementById('password').value;
+      const resultDiv = document.getElementById('create-result');
+
+      if (!signupUrl || !loginUrl || !password) {
+        resultDiv.innerHTML = '<div class="alert alert-info">Please fill in all fields.</div>';
+        return;
+      }
+
+      const btn = document.getElementById('create-btn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Creating…';
+      resultDiv.innerHTML = '<div class="alert alert-info"><span class="spinner"></span>Account creation started in the background. The page will update automatically.</div>';
+
+      fetch('/account-manager/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signup_url: signupUrl, login_url: loginUrl, password: password })
+      })
+        .then(r => r.json())
+        .then(function (data) {
+          if (data.status === 'started') {
+            setTimeout(function () { window.location.reload(); }, 1500);
+          } else {
+            resultDiv.innerHTML = '<div class="alert alert-info">Unexpected response. Refreshing…</div>';
+            setTimeout(function () { window.location.reload(); }, 2000);
+          }
+        })
+        .catch(function (err) {
+          resultDiv.innerHTML = '<div class="alert alert-info">Error: ' + err + '</div>';
+          btn.disabled = false;
+          btn.textContent = '➕ Create Account';
+        });
+    }
+  </script>
+</body>
+</html>
