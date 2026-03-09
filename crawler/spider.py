@@ -1,11 +1,17 @@
+import logging
 import scrapy
 from scrapy_playwright.page import PageMethod
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
+logger = logging.getLogger(__name__)
 
-# Phrases that indicate a page requires JavaScript to render
-_JS_WALL_PHRASES = (
+# Phrases that indicate a Cloudflare / bot-verification challenge page
+_BOT_CHALLENGE_PHRASES = (
+    "performing security verification",
+    "enable javascript and cookies to continue",
+    "just a moment",
+    # Generic JS-wall phrases
     "enable javascript",
     "javascript required",
     "please enable javascript",
@@ -14,10 +20,10 @@ _JS_WALL_PHRASES = (
 )
 
 
-def _page_needs_js(response) -> bool:
-    """Return True if the response looks like it needs JavaScript to render."""
+def _is_bot_challenge(response) -> bool:
+    """Return True if the response looks like a bot/Cloudflare challenge page."""
     text_lower = response.text.lower()
-    for phrase in _JS_WALL_PHRASES:
+    for phrase in _BOT_CHALLENGE_PHRASES:
         if phrase in text_lower:
             return True
     # Very short visible text in a large HTML response is a strong JS indicator
@@ -45,6 +51,15 @@ class WebCrawlerSpider(scrapy.Spider):
         "DOWNLOAD_DELAY": 0.5,
         "LOG_LEVEL": "WARNING",
         "HTTPERROR_ALLOW_ALL": True,
+        # Realistic browser headers to reduce bot-detection fingerprinting
+        "DEFAULT_REQUEST_HEADERS": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        },
         # Playwright download handlers (activated per-request via meta["playwright"])
         "DOWNLOAD_HANDLERS": {
             "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
@@ -53,6 +68,13 @@ class WebCrawlerSpider(scrapy.Spider):
         "TWISTED_REACTOR": "twisted.internet.asyncioreactor.AsyncioSelectorReactor",
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
         "PLAYWRIGHT_LAUNCH_OPTIONS": {"headless": True},
+        # Realistic viewport for the default Playwright browser context
+        "PLAYWRIGHT_CONTEXTS": {
+            "default": {
+                "viewport": {"width": 1280, "height": 800},
+                "locale": "en-US",
+            },
+        },
     }
 
     # Playwright page methods applied when JS rendering is needed
@@ -80,8 +102,7 @@ class WebCrawlerSpider(scrapy.Spider):
 
     def errback(self, failure):
         """Log request errors without crashing the spider."""
-        import logging
-        logging.getLogger(__name__).warning("Request failed: %s", failure)
+        logger.warning("Request failed: %s", failure)
 
     def _make_request(self, url):
         """Build a follow-up request, using Playwright only when required."""
@@ -109,8 +130,12 @@ class WebCrawlerSpider(scrapy.Spider):
         if parsed_url.netloc.lower() != self.allowed_domain:
             return
 
-        # On the first plain request, detect JS-heavy pages and re-fetch with Playwright
-        if not self._use_playwright and _page_needs_js(response):
+        # On the first plain request, detect bot/Cloudflare challenge pages and
+        # re-fetch with Playwright so the real content can be rendered.
+        if not self._use_playwright and _is_bot_challenge(response):
+            logger.warning(
+                "Cloudflare challenge detected – retrying with Playwright: %s", url
+            )
             self._use_playwright = True
             yield scrapy.Request(
                 url,
@@ -122,6 +147,13 @@ class WebCrawlerSpider(scrapy.Spider):
                     "playwright_page_methods": self._PLAYWRIGHT_METHODS,
                 },
             )
+            return
+
+        # Even after a Playwright retry (`self._use_playwright` is True), refuse to
+        # store a challenge page.  The first guard above only fires for plain HTTP
+        # requests, so this second check covers the Playwright response path.
+        if _is_bot_challenge(response):
+            logger.warning("Bot challenge page still present after Playwright – skipping: %s", url)
             return
 
         title = (response.css("title::text").get("") or "").strip()
