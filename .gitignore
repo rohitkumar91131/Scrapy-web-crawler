@@ -7,3 +7,15 @@ build/
 .env
 .venv/
 venv/
+
+# Runtime-generated data files (contain secrets / crawl data)
+api_keys.json
+jobs/
+results.json
+crawled_content.json
+factcheck_results.json
+site_graph.json
+knowledge_index.json
+qa_cache.json
+accounts.json
+session_*.json
