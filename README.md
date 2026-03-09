@@ -104,3 +104,29 @@ The spider uses the following default settings (adjustable in `crawler/spider.py
 | Templates | [Jinja2](https://jinja.palletsprojects.com/) |
 | Server | [Uvicorn](https://www.uvicorn.org/) |
 | Storage | JSON file (`results.json`) |
+
+---
+
+## Docker
+
+### Build the image
+
+```bash
+docker build -t scrapy-web-crawler .
+```
+
+### Run the container locally
+
+```bash
+docker run -p 10000:10000 scrapy-web-crawler
+```
+
+Then open your browser and navigate to: **http://localhost:10000**
+
+### Deploy on Render
+
+1. Push the repository (including the `Dockerfile`) to GitHub.
+2. Create a new **Web Service** on [Render](https://render.com) and connect your repository.
+3. Render will detect the `Dockerfile` automatically and build the image.
+4. Set the **Port** to `10000` in the Render service settings (or rely on the `EXPOSE 10000` directive).
+5. Deploy — Render will run the container using the `CMD` defined in the `Dockerfile`.
