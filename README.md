@@ -16,6 +16,7 @@ A full-stack Python web application that crawls a website using **Scrapy** (with
 - **Interactive Site Map** – force-directed graph of page relationships
 - **AI Fact Checker** – uses Gemini AI to verify factual claims extracted from crawled pages
 - **AI Knowledge Query** – chat-style interface to ask questions about the crawled website; powered by Gemini AI
+- **Account Manager** – automated signup with temporary email, email verification, login, and session persistence
 - **Fully responsive** – works on desktop, tablet, and mobile with a hamburger navigation menu
 
 ---
@@ -27,20 +28,24 @@ project/
 ├── app.py                   # FastAPI application
 ├── crawler/
 │   ├── __init__.py
-│   └── spider.py            # Scrapy + Playwright spider
+│   ├── spider.py            # Scrapy + Playwright spider
+│   └── auth.py              # Email-verification authentication automation
 ├── templates/
 │   ├── index.html           # Home page
 │   ├── results.html         # Results list
 │   ├── page.html            # Page detail view
 │   ├── factcheck.html       # AI Fact-Check dashboard
 │   ├── sitemap.html         # Interactive site graph
-│   └── ask.html             # AI Knowledge Query chat UI
+│   ├── ask.html             # AI Knowledge Query chat UI
+│   └── account_manager.html # Account Manager dashboard
 ├── static/
 │   └── style.css            # Responsive stylesheet
 ├── results.json             # Crawl output (auto-generated)
 ├── knowledge_index.json     # Page summaries index (auto-generated)
 ├── qa_cache.json            # AI Q&A cache (auto-generated)
 ├── factcheck_results.json   # Fact-check cache (auto-generated)
+├── accounts.json            # Created accounts (auto-generated)
+├── session_N.json           # Saved browser sessions (auto-generated)
 ├── requirements.txt
 ├── Dockerfile
 └── README.md
@@ -70,7 +75,7 @@ source venv/bin/activate   # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # 4. Install Playwright's Chromium browser
-playwright install
+playwright install chromium
 ```
 
 ---
@@ -116,6 +121,7 @@ Then open your browser and navigate to: **http://localhost:8000**
 7. Click **🤖 Fact Check** to verify factual claims on any crawled page using Gemini AI.
 8. Click **🗺 Site Map** for an interactive force-directed graph of the site structure.
 9. Click **🧠 Ask AI** to ask natural-language questions about the crawled website content.
+10. Click **🔐 Accounts** to open the Account Manager and create authenticated sessions.
 
 ---
 
@@ -124,6 +130,85 @@ Then open your browser and navigate to: **http://localhost:8000**
 The spider first fetches pages with plain HTTP for performance. If the response contains a JavaScript wall (e.g. "Enable JavaScript to continue") or has very little visible text, the spider automatically switches to **Playwright Chromium** rendering and re-fetches the page (and all subsequent internal links) with full JS execution and `networkidle` wait.
 
 No configuration needed – the detection is automatic.
+
+---
+
+## Account Manager (`/account-manager`)
+
+The Account Manager automates the full signup-and-login flow for websites that require email verification before allowing login.
+
+### How it works
+
+1. **Temporary email generation** – A random address is generated using the [1secmail](https://www.1secmail.com/) API (no registration required). Example: `abc123xyz@1secmail.com`.
+
+2. **Signup automation** – A headless Chromium browser (Playwright) opens the target site's signup page, fills in the `username`, `email`, and `password` fields, and submits the form.
+
+3. **Inbox polling** – The 1secmail API is polled every 5 seconds until a verification/confirmation email arrives (up to 2 minutes by default).
+
+4. **Verification link extraction** – The email body is parsed and the verification URL (e.g. `https://example.com/verify?token=xxxx`) is extracted using a regular-expression pattern.
+
+5. **Verification completion** – Playwright opens the verification link and waits for the page to load, completing the email-verification step.
+
+6. **Login automation** – Playwright opens the login page, fills in the credentials, and submits the form.
+
+7. **Session persistence** – Cookies and `localStorage` from the authenticated browser context are saved to `session_N.json` (one file per account). These files can be loaded by the spider to crawl authenticated pages.
+
+8. **Failure handling** – If email verification fails (e.g. no email received within the timeout), the flow is automatically retried with a fresh temporary email address (up to 3 retries by default).
+
+### Dashboard
+
+Navigate to **`/account-manager`** to:
+- View all created accounts
+- See the temporary email address used for each account
+- Check email verification status (`pending` / `verified` / `failed`)
+- Check login status (`pending` / `success` / `failed`)
+- See the path to the saved session file
+
+### API usage
+
+```http
+POST /account-manager/create
+Content-Type: application/json
+
+{
+  "signup_url": "https://example.com/register",
+  "login_url":  "https://example.com/login",
+  "password":   "SecurePass123!"
+}
+```
+
+```http
+GET /account-manager/status/{account_index}
+```
+
+### Programmatic usage
+
+```python
+from crawler.auth import (
+    generate_temp_email,
+    signup_with_playwright,
+    wait_for_verification_email,
+    extract_verification_link,
+    complete_verification,
+    login_and_save_session,
+    load_session,
+    create_account_with_verification,
+)
+
+# One-shot helper
+result = create_account_with_verification(
+    signup_url="https://example.com/register",
+    login_url="https://example.com/login",
+    password="MyPassword123!",
+    session_file="session.json",
+)
+print(result)
+# {'email': 'abc123@1secmail.com', 'verification_status': 'verified', ...}
+
+# Load session for reuse
+session = load_session("session.json")
+# session['cookies'] and session['localStorage'] are ready to inject
+```
 
 ---
 
@@ -157,6 +242,7 @@ The spider uses the following default settings (adjustable in `crawler/spider.py
 | Templates | [Jinja2](https://jinja.palletsprojects.com/) |
 | Server | [Uvicorn](https://www.uvicorn.org/) |
 | AI | [Gemini API (google-genai)](https://ai.google.dev/) |
+| Temp Email | [1secmail API](https://www.1secmail.com/api/) |
 | Storage | JSON files |
 
 ---
@@ -177,7 +263,7 @@ docker run -p 10000:10000 -e GOOGLE_AI_STUDIO_API_KEY=your_api_key scrapy-web-cr
 
 Then open your browser and navigate to: **http://localhost:10000**
 
-> The Dockerfile automatically installs Playwright's Chromium binary and all required system libraries.
+> The Dockerfile automatically installs Playwright's Chromium binary (`RUN playwright install chromium`) and all required system libraries.
 
 ### Deploy on Render
 

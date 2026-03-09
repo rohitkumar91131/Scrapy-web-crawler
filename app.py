@@ -22,6 +22,7 @@ FACTCHECK_FILE = os.path.join(BASE_DIR, "factcheck_results.json")
 GRAPH_FILE = os.path.join(BASE_DIR, "site_graph.json")
 KNOWLEDGE_INDEX_FILE = os.path.join(BASE_DIR, "knowledge_index.json")
 QA_CACHE_FILE = os.path.join(BASE_DIR, "qa_cache.json")
+ACCOUNTS_FILE = os.path.join(BASE_DIR, "accounts.json")
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -576,3 +577,123 @@ async def ask(body: AskRequest):
     _save_qa_cache(cache)
 
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Account Manager helpers
+# ---------------------------------------------------------------------------
+
+class AccountCreateRequest(BaseModel):
+    signup_url: str
+    login_url: str
+    password: str
+
+
+def _load_accounts() -> list:
+    if not os.path.exists(ACCOUNTS_FILE):
+        return []
+    try:
+        with open(ACCOUNTS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_accounts(accounts: list) -> None:
+    import logging as _logging
+    try:
+        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(accounts, fh, indent=2, ensure_ascii=False)
+    except OSError as exc:
+        _logging.getLogger(__name__).warning("Failed to save accounts file: %s", exc)
+
+
+def _run_account_creation(
+    signup_url: str,
+    login_url: str,
+    password: str,
+    account_index: int,
+) -> None:
+    """Background worker that runs the full email-verification signup flow."""
+    import datetime
+    from crawler.auth import create_account_with_verification
+
+    session_file = os.path.join(BASE_DIR, f"session_{account_index}.json")
+    result = create_account_with_verification(
+        signup_url=signup_url,
+        login_url=login_url,
+        password=password,
+        session_file=session_file,
+    )
+    result["signup_url"] = signup_url
+    result["login_url"] = login_url
+    result["created_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    result["index"] = account_index
+
+    accounts = _load_accounts()
+    # Replace placeholder entry added before the thread started
+    for i, acc in enumerate(accounts):
+        if acc.get("index") == account_index:
+            accounts[i] = result
+            break
+    else:
+        accounts.append(result)
+    _save_accounts(accounts)
+
+
+# ---------------------------------------------------------------------------
+# Account Manager routes
+# ---------------------------------------------------------------------------
+
+@app.get("/account-manager", response_class=HTMLResponse)
+async def account_manager(request: Request):
+    """Account Manager dashboard – shows created accounts and their status."""
+    accounts = _load_accounts()
+    return templates.TemplateResponse(
+        "account_manager.html",
+        {"request": request, "accounts": accounts},
+    )
+
+
+@app.post("/account-manager/create")
+async def account_manager_create(body: AccountCreateRequest):
+    """Trigger account creation with email verification in the background."""
+    accounts = _load_accounts()
+    account_index = len(accounts)
+
+    # Add a placeholder so the UI can show "pending" immediately
+    import datetime
+    placeholder = {
+        "index": account_index,
+        "email": None,
+        "username": None,
+        "password": body.password,
+        "signup_url": body.signup_url,
+        "login_url": body.login_url,
+        "verification_status": "pending",
+        "login_status": "pending",
+        "verification_link": None,
+        "session_file": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    accounts.append(placeholder)
+    _save_accounts(accounts)
+
+    thread = threading.Thread(
+        target=_run_account_creation,
+        args=(body.signup_url, body.login_url, body.password, account_index),
+        daemon=True,
+    )
+    thread.start()
+
+    return JSONResponse({"status": "started", "account_index": account_index})
+
+
+@app.get("/account-manager/status/{account_index}")
+async def account_manager_status(account_index: int):
+    """Return the current status of an account by index."""
+    accounts = _load_accounts()
+    if account_index < 0 or account_index >= len(accounts):
+        return JSONResponse({"error": "Account not found."}, status_code=404)
+    return JSONResponse(accounts[account_index])
