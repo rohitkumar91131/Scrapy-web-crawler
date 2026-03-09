@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Fact Checker – Scrapy Web Crawler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a class="brand" href="/">🕷 Scrapy Crawler</a>
+    <a href="/results">Results</a>
+    <a href="/fact-check" class="active">🤖 Fact Check</a>
+  </nav>
+
+  <main class="container">
+    <section class="hero">
+      <h1>AI Fact Checker</h1>
+      <p class="subtitle">Select a crawled page URL and let Gemini AI verify the factual claims found in its content.</p>
+    </section>
+
+    <!-- Input form -->
+    <div class="card crawl-card factcheck-card">
+      <h2>Check a Crawled Page</h2>
+      {% if crawled_urls %}
+      <div class="form-group">
+        <label for="url-select">Choose a crawled URL</label>
+        <select id="url-select" class="form-control">
+          <option value="">— select a page —</option>
+          {% for u in crawled_urls %}
+          <option value="{{ u }}">{{ u }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <p class="muted" style="margin-bottom:0.75rem; font-size:0.85rem;">or enter a URL manually:</p>
+      {% else %}
+      <div class="alert alert-info" style="margin-bottom:1rem;">
+        No crawl results found. <a href="/">Start a crawl first →</a>
+      </div>
+      {% endif %}
+      <div class="form-group">
+        <label for="url-input">Page URL</label>
+        <input type="url" id="url-input" class="form-control" placeholder="https://example.com/page" />
+      </div>
+      <button id="check-btn" class="btn btn-primary" onclick="runFactCheck()">
+        🤖 Run Fact Check
+      </button>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loading-banner" class="loading-banner" style="display:none;">
+      <div class="spinner"></div>
+      <div>
+        <strong>Analyzing claims with Gemini AI…</strong>
+        <p class="muted" style="font-size:0.85rem;margin-top:0.2rem;">This may take a few seconds. Results are cached after the first run.</p>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div id="error-banner" class="alert alert-error" style="display:none;"></div>
+
+    <!-- Results section (hidden until data arrives) -->
+    <div id="results-section" style="display:none;">
+
+      <!-- Summary panel -->
+      <div class="fc-summary-grid">
+        <div class="fc-stat-card">
+          <div class="fc-stat-value" id="stat-total">—</div>
+          <div class="fc-stat-label">Total Claims</div>
+        </div>
+        <div class="fc-stat-card fc-stat-true">
+          <div class="fc-stat-value" id="stat-true">—</div>
+          <div class="fc-stat-label">True</div>
+        </div>
+        <div class="fc-stat-card fc-stat-false">
+          <div class="fc-stat-value" id="stat-false">—</div>
+          <div class="fc-stat-label">False</div>
+        </div>
+        <div class="fc-stat-card fc-stat-uncertain">
+          <div class="fc-stat-value" id="stat-uncertain">—</div>
+          <div class="fc-stat-label">Uncertain</div>
+        </div>
+        <div class="fc-stat-card fc-stat-score">
+          <div class="fc-stat-value" id="stat-score">—</div>
+          <div class="fc-stat-label">Reliability Score</div>
+        </div>
+      </div>
+
+      <!-- Results table -->
+      <div class="table-wrapper">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Extracted Claim</th>
+              <th>Reality / Correct Info</th>
+              <th>Verdict</th>
+              <th>Confidence</th>
+              <th>Explanation</th>
+            </tr>
+          </thead>
+          <tbody id="results-body"></tbody>
+        </table>
+      </div>
+
+      <p class="muted" style="font-size:0.82rem;margin-top:0.5rem;">
+        ℹ️ Results are cached in <code>factcheck_results.json</code>. Clear the cache file to re-check.
+      </p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>Powered by <strong>Gemini AI</strong> + <strong>Scrapy</strong> + <strong>FastAPI</strong></p>
+  </footer>
+
+  <script>
+    // Sync select → input
+    document.getElementById('url-select') && document.getElementById('url-select').addEventListener('change', function () {
+      document.getElementById('url-input').value = this.value;
+    });
+
+    function verdictBadge(verdict) {
+      const v = (verdict || '').toLowerCase();
+      if (v.startsWith('true'))      return '<span class="fc-badge fc-badge-true">✅ True</span>';
+      if (v.startsWith('false'))     return '<span class="fc-badge fc-badge-false">❌ False</span>';
+      return '<span class="fc-badge fc-badge-uncertain">⚠️ Uncertain</span>';
+    }
+
+    function scoreBar(raw) {
+      const n = parseFloat(raw);
+      if (isNaN(n)) return raw || '—';
+      const pct = Math.round(n * 100);
+      return `<div class="fc-score-bar"><div class="fc-score-fill" style="width:${pct}%"></div></div><span class="muted" style="font-size:0.8rem">${pct}%</span>`;
+    }
+
+    async function runFactCheck() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) { alert('Please enter or select a URL.'); return; }
+
+      document.getElementById('loading-banner').style.display = 'flex';
+      document.getElementById('error-banner').style.display = 'none';
+      document.getElementById('results-section').style.display = 'none';
+      document.getElementById('check-btn').disabled = true;
+
+      try {
+        const resp = await fetch('/factcheck', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await resp.json();
+
+        if (!resp.ok || data.error) {
+          document.getElementById('error-banner').textContent = '⚠️ ' + (data.error || 'Unknown error');
+          document.getElementById('error-banner').style.display = 'block';
+          return;
+        }
+
+        const s = data.summary || {};
+        document.getElementById('stat-total').textContent     = s.number_of_claims ?? '—';
+        document.getElementById('stat-true').textContent      = s.true_claims ?? '—';
+        document.getElementById('stat-false').textContent     = s.false_claims ?? '—';
+        document.getElementById('stat-uncertain').textContent = s.uncertain_claims ?? '—';
+        const score = s.overall_reliability_score;
+        document.getElementById('stat-score').textContent = score != null ? (Math.round(score * 100) + '%') : '—';
+
+        const tbody = document.getElementById('results-body');
+        tbody.innerHTML = '';
+        (data.results || []).forEach(function (r, i) {
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td class="row-num center">' + (i + 1) + '</td>' +
+            '<td class="fc-claim-cell">' + escHtml(r.claim || '—') + '</td>' +
+            '<td class="fc-info-cell">' + escHtml(r.correct_information || '—') + '</td>' +
+            '<td class="center nowrap">' + verdictBadge(r.verification) + '</td>' +
+            '<td class="center fc-conf-cell">' + scoreBar(r.confidence_score) + '</td>' +
+            '<td class="fc-expl-cell muted">' + escHtml(r.explanation || '—') + '</td>';
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById('results-section').style.display = 'block';
+      } catch (err) {
+        document.getElementById('error-banner').textContent = '⚠️ Request failed: ' + err.message;
+        document.getElementById('error-banner').style.display = 'block';
+      } finally {
+        document.getElementById('loading-banner').style.display = 'none';
+        document.getElementById('check-btn').disabled = false;
+      }
+    }
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

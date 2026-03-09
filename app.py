@@ -1,13 +1,16 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
 
+from google import genai
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -15,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_FILE = os.path.join(BASE_DIR, "results.json")
 SPIDER_FILE = os.path.join(BASE_DIR, "crawler", "spider.py")
+FACTCHECK_FILE = os.path.join(BASE_DIR, "factcheck_results.json")
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -91,6 +95,73 @@ def _load_results() -> list:
             return data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError):
         return []
+
+
+# ---------------------------------------------------------------------------
+# Fact-check helpers
+# ---------------------------------------------------------------------------
+
+class FactCheckRequest(BaseModel):
+    url: str
+
+
+def _load_factcheck_cache() -> dict:
+    if not os.path.exists(FACTCHECK_FILE):
+        return {}
+    try:
+        with open(FACTCHECK_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_factcheck_cache(cache: dict) -> None:
+    try:
+        with open(FACTCHECK_FILE, "w", encoding="utf-8") as fh:
+            json.dump(cache, fh, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def _extract_claims(text: str) -> list:
+    """Extract candidate factual sentences from crawled text content."""
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    claims = []
+    for s in sentences:
+        s = s.strip()
+        # Keep sentences that look like factual statements (not questions)
+        if len(s) >= 30 and not s.endswith("?") and not s.startswith("#"):
+            claims.append(s)
+    # Limit to 5 claims to keep API usage reasonable
+    return claims[:5]
+
+
+def _factcheck_claim(claim: str, api_key: str) -> dict:
+    """Send a single claim to the Gemini API for fact-checking."""
+    client = genai.Client(api_key=api_key)
+    prompt = (
+        "You are a fact checking assistant.\n"
+        "Compare the extracted claim with real world knowledge.\n\n"
+        f'Claim: "{claim}"\n\n'
+        "Return JSON format only, no additional text or markdown:\n"
+        "{\n"
+        '  "claim": "...",\n'
+        '  "verification": "true / false / uncertain",\n'
+        '  "correct_information": "...",\n'
+        '  "confidence_score": "0.0 to 1.0",\n'
+        '  "explanation": "..."\n'
+        "}"
+    )
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=prompt,
+    )
+    raw = response.text.strip()
+    # Strip markdown code fences if the model wraps its response
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    return json.loads(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -179,3 +250,104 @@ async def page_detail(request: Request, url: str = ""):
         "page.html",
         {"request": request, "page": page, "url": url},
     )
+
+
+# ---------------------------------------------------------------------------
+# Fact-check routes
+# ---------------------------------------------------------------------------
+
+@app.get("/fact-check", response_class=HTMLResponse)
+async def factcheck_page(request: Request):
+    """AI Fact-Check dashboard page."""
+    pages_data = _load_results()
+    urls = [p.get("page_url", "") for p in pages_data if p.get("page_url")]
+    return templates.TemplateResponse(
+        "factcheck.html", {"request": request, "crawled_urls": urls}
+    )
+
+
+@app.post("/factcheck")
+async def factcheck(body: FactCheckRequest):
+    """Fact-check claims extracted from a crawled page using Gemini AI."""
+    url = body.url.strip()
+
+    api_key = os.environ.get("GOOGLE_AI_STUDIO_API_KEY", "")
+    if not api_key:
+        return JSONResponse(
+            {"error": "GOOGLE_AI_STUDIO_API_KEY environment variable is not set."},
+            status_code=500,
+        )
+
+    # Return cached result if available
+    cache = _load_factcheck_cache()
+    if url in cache:
+        return JSONResponse(cache[url])
+
+    # Locate the page in crawl results
+    pages_data = _load_results()
+    page = next((p for p in pages_data if p.get("page_url") == url), None)
+    if not page:
+        return JSONResponse(
+            {"error": "Page not found in crawl results. Please crawl it first."},
+            status_code=404,
+        )
+
+    text = page.get("text_content", "")
+    claims = _extract_claims(text)
+    if not claims:
+        return JSONResponse(
+            {"error": "No factual claims could be extracted from the page content."},
+            status_code=400,
+        )
+
+    results = []
+    for claim in claims:
+        try:
+            result = _factcheck_claim(claim, api_key)
+            results.append(result)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("Fact-check claim failed: %s", exc)
+            results.append(
+                {
+                    "claim": claim,
+                    "verification": "uncertain",
+                    "correct_information": "Could not verify.",
+                    "confidence_score": "0.0",
+                    "explanation": "An error occurred while contacting the AI service.",
+                }
+            )
+
+    total = len(results)
+    true_claims = sum(
+        1 for r in results if str(r.get("verification", "")).lower().startswith("true")
+    )
+    false_claims = sum(
+        1 for r in results if str(r.get("verification", "")).lower().startswith("false")
+    )
+    uncertain_claims = total - true_claims - false_claims
+
+    try:
+        scores = [float(r.get("confidence_score", 0)) for r in results]
+        avg_confidence = sum(scores) / total if total else 0.0
+    except (ValueError, TypeError):
+        avg_confidence = 0.0
+
+    reliability_score = round((true_claims / total) * avg_confidence, 2) if total else 0.0
+
+    response_data = {
+        "url": url,
+        "results": results,
+        "summary": {
+            "number_of_claims": total,
+            "true_claims": true_claims,
+            "false_claims": false_claims,
+            "uncertain_claims": uncertain_claims,
+            "overall_reliability_score": reliability_score,
+        },
+    }
+
+    cache[url] = response_data
+    _save_factcheck_cache(cache)
+
+    return JSONResponse(response_data)
