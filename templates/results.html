@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crawl Results – Scrapy Web Crawler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a class="brand" href="/">🕷 Scrapy Crawler</a>
+    <a href="/">Home</a>
+    <a href="/results" class="active">Results</a>
+  </nav>
+
+  <main class="container">
+    <h1>Crawl Results</h1>
+
+    <!-- ── Loading indicator ─────────────────────────────────────────── -->
+    {% if crawl_state.status == "running" %}
+    <div class="loading-banner" id="loading-banner">
+      <div class="spinner"></div>
+      <div>
+        <strong>Crawling in progress…</strong>
+        <p class="muted">Crawling <em>{{ crawl_state.url }}</em>. This page refreshes automatically.</p>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if crawl_state.status == "error" %}
+    <div class="alert alert-error">
+      ❌ <strong>Crawl error:</strong> {{ crawl_state.message }}
+      <a href="/">Try again →</a>
+    </div>
+    {% endif %}
+
+    {% if crawl_state.status == "complete" %}
+    <div class="alert alert-success">
+      ✅ Crawl of <strong>{{ crawl_state.url }}</strong> completed. {{ total }} page(s) found.
+    </div>
+    {% endif %}
+
+    <!-- ── Search bar ─────────────────────────────────────────────────── -->
+    <form method="get" action="/results" class="search-form">
+      <input
+        type="text"
+        name="search"
+        value="{{ search }}"
+        placeholder="Search by URL, title, or content…"
+        class="form-control search-input"
+      />
+      <button type="submit" class="btn btn-secondary">Search</button>
+      {% if search %}
+      <a href="/results" class="btn btn-ghost">Clear</a>
+      {% endif %}
+    </form>
+
+    <!-- ── Results table ──────────────────────────────────────────────── -->
+    {% if pages %}
+    <div class="table-wrapper">
+      <table class="results-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>URL</th>
+            <th>Title</th>
+            <th>Links</th>
+            <th>Crawled At</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set row_offset = (current_page - 1) * 10 %}
+          {% for p in pages %}
+          <tr>
+            <td class="row-num">{{ row_offset + loop.index }}</td>
+            <td class="url-cell">
+              <a href="{{ p.page_url }}" target="_blank" rel="noopener" title="{{ p.page_url }}">
+                {{ p.page_url | truncate(60) }}
+              </a>
+            </td>
+            <td>{{ p.title | truncate(60) if p.title else "—" }}</td>
+            <td class="center">{{ p.internal_links | length }}</td>
+            <td class="muted nowrap">{{ p.crawl_timestamp[:19].replace("T", " ") if p.crawl_timestamp else "—" }}</td>
+            <td>
+              <a href="/page?url={{ p.page_url | urlencode }}" class="btn btn-sm">View</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Pagination ─────────────────────────────────────────────────── -->
+    {% if total_pages > 1 %}
+    <nav class="pagination">
+      {% if current_page > 1 %}
+      <a href="/results?page={{ current_page - 1 }}&search={{ search }}" class="page-btn">‹ Prev</a>
+      {% else %}
+      <span class="page-btn disabled">‹ Prev</span>
+      {% endif %}
+
+      {% for p in range(1, total_pages + 1) %}
+        {% if p == current_page %}
+        <span class="page-btn active">{{ p }}</span>
+        {% elif p == 1 or p == total_pages or (p >= current_page - 2 and p <= current_page + 2) %}
+        <a href="/results?page={{ p }}&search={{ search }}" class="page-btn">{{ p }}</a>
+        {% elif p == current_page - 3 or p == current_page + 3 %}
+        <span class="page-btn disabled">…</span>
+        {% endif %}
+      {% endfor %}
+
+      {% if current_page < total_pages %}
+      <a href="/results?page={{ current_page + 1 }}&search={{ search }}" class="page-btn">Next ›</a>
+      {% else %}
+      <span class="page-btn disabled">Next ›</span>
+      {% endif %}
+    </nav>
+    {% endif %}
+
+    {% elif crawl_state.status not in ("running",) %}
+    <div class="empty-state">
+      {% if search %}
+      <p>No pages match "<strong>{{ search }}</strong>".</p>
+      <a href="/results" class="btn btn-secondary">Clear search</a>
+      {% else %}
+      <p>No crawl results yet.</p>
+      <a href="/" class="btn btn-primary">Start crawling →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </main>
+
+  <footer class="footer">
+    <p>Built with <strong>Scrapy</strong> + <strong>FastAPI</strong> + <strong>Jinja2</strong></p>
+  </footer>
+
+  <!-- Poll for crawl status when a crawl is running -->
+  {% if crawl_state.status == "running" %}
+  <script>
+    (function poll() {
+      fetch('/crawl-status')
+        .then(r => r.json())
+        .then(data => {
+          if (data.status !== 'running') {
+            window.location.reload();
+          } else {
+            setTimeout(poll, 2500);
+          }
+        })
+        .catch(() => setTimeout(poll, 5000));
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>
