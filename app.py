@@ -19,6 +19,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_FILE = os.path.join(BASE_DIR, "results.json")
 SPIDER_FILE = os.path.join(BASE_DIR, "crawler", "spider.py")
 FACTCHECK_FILE = os.path.join(BASE_DIR, "factcheck_results.json")
+GRAPH_FILE = os.path.join(BASE_DIR, "site_graph.json")
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -95,6 +96,37 @@ def _load_results() -> list:
             return data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def _build_site_graph() -> dict:
+    """Build a graph of nodes (pages) and edges (internal links) from results."""
+    pages = _load_results()
+    node_ids: set = set()
+    edges: list = []
+
+    for page in pages:
+        source = page.get("page_url", "")
+        if not source:
+            continue
+        node_ids.add(source)
+        for target in page.get("internal_links", []):
+            if target and target != source:
+                node_ids.add(target)
+                edges.append({"source": source, "target": target})
+
+    graph = {
+        "nodes": [{"id": url} for url in sorted(node_ids)],
+        "edges": edges,
+    }
+
+    # Persist to site_graph.json
+    try:
+        with open(GRAPH_FILE, "w", encoding="utf-8") as fh:
+            json.dump(graph, fh, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
+
+    return graph
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +282,23 @@ async def page_detail(request: Request, url: str = ""):
         "page.html",
         {"request": request, "page": page, "url": url},
     )
+
+
+# ---------------------------------------------------------------------------
+# Site-graph / Site-map routes
+# ---------------------------------------------------------------------------
+
+@app.get("/site-graph")
+async def site_graph():
+    """Return nodes and edges for the site structure graph as JSON."""
+    graph = _build_site_graph()
+    return JSONResponse(graph)
+
+
+@app.get("/site-map", response_class=HTMLResponse)
+async def site_map(request: Request):
+    """Interactive site structure visualization page."""
+    return templates.TemplateResponse("sitemap.html", {"request": request})
 
 
 # ---------------------------------------------------------------------------
