@@ -185,7 +185,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url })
       });
-      var data = await resp.json();
+      var _text = await resp.text();
+      var data;
+      try { data = JSON.parse(_text); } catch (e) { data = {error: 'Server returned an invalid response.'}; }
 
       if (!resp.ok || data.error) {
         document.getElementById('error-text').textContent = '⚠️ ' + (data.error || 'Unknown error');

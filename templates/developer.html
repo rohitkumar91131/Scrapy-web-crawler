@@ -165,7 +165,13 @@ curl {{ request.url.scheme }}://{{ request.url.netloc }}/api/v1/status/JOB_ID \
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: name})
       });
-      var data = await resp.json();
+      var _text = await resp.text();
+      var data;
+      try { data = JSON.parse(_text); } catch (e) { data = {error: 'Server returned an invalid response.'}; }
+      if (!resp.ok || !data.key) {
+        alert('Failed to generate key: ' + (data.error || data.detail || 'Unknown error'));
+        return;
+      }
       var banner = document.getElementById('new-key-banner');
       document.getElementById('new-key-value').textContent = data.key;
       banner.classList.remove('hidden');
