@@ -11,9 +11,8 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from google import genai
-from fastapi import FastAPI, Form, Request, Security, HTTPException, Depends
+from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.security.api_key import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -134,15 +133,6 @@ def _validate_api_key(key: str | None) -> bool:
     except Exception:
         pass
     return True
-
-
-_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-async def _require_api_key(key: str = Security(_api_key_header)) -> str:
-    if not _validate_api_key(key):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key. Pass X-API-Key header.")
-    return key
 
 
 # ---------------------------------------------------------------------------
@@ -1007,29 +997,11 @@ async def platform_detection_page(request: Request):
 
 @app.get("/developer", response_class=HTMLResponse)
 async def developer_page(request: Request):
-    """Developer API documentation and key management page."""
-    keys = _load_api_keys()
+    """Developer API documentation and playground page."""
     return templates.TemplateResponse(
         "developer.html",
-        {"request": request, "api_keys": list(keys.values())},
+        {"request": request},
     )
-
-
-@app.post("/developer/generate-key")
-async def generate_api_key(request: Request):
-    """Generate a new API key."""
-    body = await request.json()
-    name = (body.get("name") or "Unnamed Key").strip()[:80]
-    new_key = "sk_" + secrets.token_hex(16)
-    keys = _load_api_keys()
-    keys[new_key] = {
-        "key": new_key,
-        "name": name,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "requests_count": 0,
-    }
-    _save_api_keys(keys)
-    return JSONResponse({"key": new_key, "name": name})
 
 
 # ===========================================================================
@@ -1047,6 +1019,10 @@ class ApiDetectRequest(BaseModel):
 
 class ApiFactCheckRequest(BaseModel):
     text: str
+
+
+class ApiExtractRequest(BaseModel):
+    url: str
 
 
 # ── GET /api/v1/stats (no auth – public health check) ──────────────────────
@@ -1075,7 +1051,6 @@ async def api_stats():
 async def api_start_crawl(
     request: Request,
     body: ApiCrawlRequest,
-    _key: str = Depends(_require_api_key),
 ):
     """
     Start a new crawl job.  Returns a ``job_id`` to poll for status.
@@ -1131,7 +1106,6 @@ async def api_start_crawl(
 async def api_job_status(
     request: Request,
     job_id: str,
-    _key: str = Depends(_require_api_key),
 ):
     """Return the current status of a crawl job."""
     job = _get_job(job_id)
@@ -1156,7 +1130,6 @@ async def api_job_status(
 async def api_job_results(
     request: Request,
     job_id: str,
-    _key: str = Depends(_require_api_key),
 ):
     """Return the crawled pages for a completed job."""
     job = _get_job(job_id)
@@ -1178,7 +1151,6 @@ async def api_job_results(
 async def api_detect_platform(
     request: Request,
     body: ApiDetectRequest,
-    _key: str = Depends(_require_api_key),
 ):
     """
     Detect the platform of a given URL and return the optimal extraction strategy.
@@ -1206,7 +1178,6 @@ async def api_detect_platform(
 async def api_factcheck_text(
     request: Request,
     body: ApiFactCheckRequest,
-    _key: str = Depends(_require_api_key),
 ):
     """
     Fact-check claims extracted from free text using Gemini AI.
@@ -1245,6 +1216,26 @@ async def api_factcheck_text(
                 "correct_information": "",
             })
     return JSONResponse({"claims": results})
+
+
+# ── POST /api/v1/extract ────────────────────────────────────────────────────
+
+@app.post("/api/v1/extract", tags=["API"])
+@limiter.limit("30/minute")
+async def api_extract_content(
+    request: Request,
+    body: ApiExtractRequest,
+):
+    """
+    Extract full content (title, headings, paragraphs, images, text) from any URL.
+
+    No API key required.
+    """
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+    data = await _extract_page_content(url)
+    return JSONResponse(data)
 
 
 # ---------------------------------------------------------------------------
