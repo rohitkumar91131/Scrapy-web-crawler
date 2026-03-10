@@ -1,38 +1,20 @@
+import json
 import logging
+import os
 import scrapy
 from scrapy_playwright.page import PageMethod
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
+from crawler.login_detection import BOT_CHALLENGE_PHRASES, is_login_wall
 
-# Phrases that indicate a Cloudflare / bot-verification challenge page
-_BOT_CHALLENGE_PHRASES = (
-    "performing security verification",
-    "enable javascript and cookies to continue",
-    "just a moment",
-    # Generic JS-wall phrases
-    "enable javascript",
-    "javascript required",
-    "please enable javascript",
-    "javascript is required",
-    "you need to enable javascript",
-    # Login / sign-in walls that hide content behind authentication
-    "sign in to continue",
-    "please sign in to continue",
-    "you must be signed in",
-    "log in to continue",
-    "login to continue",
-    # ChatGPT / OpenAI-specific error pages for shared conversations
-    "can't load shared conversation",
-    "unable to load conversation",
-)
+logger = logging.getLogger(__name__)
 
 
 def _is_bot_challenge(response) -> bool:
     """Return True if the response looks like a bot/Cloudflare challenge page."""
     text_lower = response.text.lower()
-    for phrase in _BOT_CHALLENGE_PHRASES:
+    for phrase in BOT_CHALLENGE_PHRASES:
         if phrase in text_lower:
             return True
     # Very short visible text in a large HTML response is a strong JS indicator
@@ -91,7 +73,7 @@ class WebCrawlerSpider(scrapy.Spider):
         PageMethod("wait_for_load_state", "networkidle"),
     ]
 
-    def __init__(self, start_url=None, *args, **kwargs):
+    def __init__(self, start_url=None, session_file=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not start_url:
             raise ValueError("start_url argument is required.")
@@ -103,11 +85,50 @@ class WebCrawlerSpider(scrapy.Spider):
         self.allowed_domain = parsed.netloc.lower()
         # Set to True once JS rendering is detected on the first page
         self._use_playwright = False
+        # Load saved session cookies (created by Account Manager / auth.py)
+        self._session_cookies: list = []
+        if session_file and os.path.exists(session_file):
+            try:
+                with open(session_file, "r", encoding="utf-8") as fh:
+                    session_data = json.load(fh)
+                self._session_cookies = session_data.get("cookies", [])
+                if self._session_cookies:
+                    logger.info(
+                        "Loaded %d cookies from session file: %s",
+                        len(self._session_cookies),
+                        session_file,
+                    )
+                    # When a session is provided, always use Playwright so the
+                    # authenticated context is active from the very first request.
+                    self._use_playwright = True
+            except Exception as exc:
+                logger.warning("Failed to load session file %s: %s", session_file, exc)
 
     def start_requests(self):
-        """Yield the initial request using plain HTTP (no Playwright overhead)."""
+        """Yield the initial request, using an authenticated Playwright context
+        when a session file was provided, or plain HTTP otherwise."""
         for url in self.start_urls:
-            yield scrapy.Request(url, callback=self.parse, errback=self.errback)
+            if self._session_cookies:
+                yield scrapy.Request(
+                    url,
+                    callback=self.parse,
+                    errback=self.errback,
+                    meta={
+                        "playwright": True,
+                        "playwright_context": "authenticated",
+                        "playwright_context_kwargs": {
+                            "storage_state": {
+                                "cookies": self._session_cookies,
+                                "origins": [],
+                            },
+                            "viewport": {"width": 1280, "height": 800},
+                            "locale": "en-US",
+                        },
+                        "playwright_page_methods": self._PLAYWRIGHT_METHODS,
+                    },
+                )
+            else:
+                yield scrapy.Request(url, callback=self.parse, errback=self.errback)
 
     def errback(self, failure):
         """Log request errors without crashing the spider."""
@@ -116,14 +137,17 @@ class WebCrawlerSpider(scrapy.Spider):
     def _make_request(self, url):
         """Build a follow-up request, using Playwright only when required."""
         if self._use_playwright:
+            meta: dict = {
+                "playwright": True,
+                "playwright_page_methods": self._PLAYWRIGHT_METHODS,
+            }
+            if self._session_cookies:
+                meta["playwright_context"] = "authenticated"
             return scrapy.Request(
                 url,
                 callback=self.parse,
                 errback=self.errback,
-                meta={
-                    "playwright": True,
-                    "playwright_page_methods": self._PLAYWRIGHT_METHODS,
-                },
+                meta=meta,
             )
         return scrapy.Request(url, callback=self.parse, errback=self.errback)
 
@@ -143,7 +167,7 @@ class WebCrawlerSpider(scrapy.Spider):
         # re-fetch with Playwright so the real content can be rendered.
         if not self._use_playwright and _is_bot_challenge(response):
             logger.warning(
-                "Cloudflare challenge detected – retrying with Playwright: %s", url
+                "Bot challenge / login wall detected – retrying with Playwright: %s", url
             )
             self._use_playwright = True
             yield scrapy.Request(
@@ -162,7 +186,27 @@ class WebCrawlerSpider(scrapy.Spider):
         # store a challenge page.  The first guard above only fires for plain HTTP
         # requests, so this second check covers the Playwright response path.
         if _is_bot_challenge(response):
-            logger.warning("Bot challenge page still present after Playwright – skipping: %s", url)
+            if is_login_wall(response.text):
+                logger.warning("Login wall detected after Playwright – emitting auth-error item: %s", url)
+                title = (response.css("title::text").get("") or "").strip()
+                yield {
+                    "page_url": url,
+                    "title": title,
+                    "meta_description": "",
+                    "headings": {"h1": [], "h2": [], "h3": [], "h4": [], "h5": [], "h6": []},
+                    "paragraphs": [],
+                    "images": [],
+                    "text_content": "",
+                    "internal_links": [],
+                    "crawl_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "error": (
+                        "Login required: this page is protected by authentication. "
+                        "Use the Account Manager to create an authenticated session, "
+                        "then re-run the crawl with that session."
+                    ),
+                }
+            else:
+                logger.warning("Bot challenge page still present after Playwright – skipping: %s", url)
             return
 
         title = (response.css("title::text").get("") or "").strip()
