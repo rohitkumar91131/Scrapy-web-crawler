@@ -42,6 +42,7 @@ PLATFORM_STRATEGIES = {
     "Drupal":       "Scrapy HTML Crawl",
     "Magento":      "Scrapy HTML Crawl",
     "Google":       "Playwright JS Rendering",
+    "ChatGPT":      "Playwright JS Rendering",
     "News Website": "RSS Feed Extraction",
     "Generic":      "Scrapy HTML Crawl",
 }
@@ -55,6 +56,11 @@ _GOOGLE_SPA_DOMAINS = (
     "ai.google",
 )
 
+# OpenAI / ChatGPT domains that serve JS-heavy SPAs and require Playwright rendering.
+_OPENAI_SPA_DOMAINS = (
+    "chatgpt.com",
+    "chat.openai.com",
+)
 
 def _is_safe_url(url: str) -> bool:
     """
@@ -195,6 +201,11 @@ def _detect_from_html(
     if any(_netloc_matches(netloc, d) for d in _GOOGLE_SPA_DOMAINS):
         signals.append("Google SPA detected (gemini.google.com or related domain)")
         return {"name": "Google", "strategy": "Playwright JS Rendering", "api_endpoint": None}
+
+    # ── OpenAI / ChatGPT (JS-heavy SPA) ──────────────────────────────
+    if any(_netloc_matches(netloc, d) for d in _OPENAI_SPA_DOMAINS):
+        signals.append("OpenAI/ChatGPT SPA detected (chatgpt.com or related domain)")
+        return {"name": "ChatGPT", "strategy": "Playwright JS Rendering", "api_endpoint": None}
 
     # Extract <meta name="generator"> value
     meta_gen = ""
