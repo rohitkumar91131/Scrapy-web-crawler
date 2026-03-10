@@ -21,6 +21,8 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from crawler.login_detection import is_login_wall
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -212,7 +214,7 @@ def _get_job(job_id: str) -> dict | None:
 # Background crawl worker
 # ---------------------------------------------------------------------------
 
-def _run_crawl(url: str, job_id: str | None = None) -> None:
+def _run_crawl(url: str, job_id: str | None = None, session_file: str | None = None) -> None:
     """Run Scrapy in a subprocess and update crawl_state when finished."""
     result_file = _job_results_file(job_id) if job_id else RESULTS_FILE
 
@@ -229,6 +231,8 @@ def _run_crawl(url: str, job_id: str | None = None) -> None:
         "-o", result_file,
         "--logfile", os.devnull,
     ]
+    if session_file and os.path.exists(session_file):
+        cmd += ["-a", f"session_file={session_file}"]
     try:
         result = subprocess.run(
             cmd,
@@ -439,6 +443,7 @@ class FactCheckRequest(BaseModel):
 
 class ExtractRequest(BaseModel):
     url: str
+    account_index: int | None = None
 
 
 def _load_factcheck_cache() -> dict:
@@ -515,15 +520,38 @@ async def home(request: Request):
         "total_pages": len(pages),
         "factcheck_count": len(fc_cache),
     }
+    accounts = _load_accounts()
+    usable_accounts = [
+        a for a in accounts
+        if a.get("login_status") == "success" and a.get("session_file")
+    ]
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "crawl_state": state, "stats": stats},
+        {
+            "request": request,
+            "crawl_state": state,
+            "stats": stats,
+            "accounts": usable_accounts,
+        },
     )
 
 
 @app.post("/crawl")
-async def start_crawl(url: str = Form(...)):
+async def start_crawl(url: str = Form(...), account_index: int | None = Form(None)):
     """Start crawling a given URL in the background."""
+    # Resolve session file from account_index (validated to prevent path traversal)
+    session_file: str | None = None
+    if account_index is not None:
+        accounts = _load_accounts()
+        if 0 <= account_index < len(accounts):
+            acc = accounts[account_index]
+            if acc.get("login_status") == "success":
+                sf = acc.get("session_file", "")
+                if sf:
+                    sf_abs = sf if os.path.isabs(sf) else os.path.join(BASE_DIR, sf)
+                    if os.path.exists(sf_abs):
+                        session_file = sf_abs
+
     with _state_lock:
         if _crawl_state["status"] == "running":
             return RedirectResponse("/results", status_code=303)
@@ -533,7 +561,7 @@ async def start_crawl(url: str = Form(...)):
         _crawl_state["platform"] = None
         _crawl_state["strategy"] = None
 
-    def _run_with_detection(target_url: str) -> None:
+    def _run_with_detection(target_url: str, _session_file: str | None) -> None:
         from crawler.platform_detector import detect_platform
         from crawler.strategies import run_strategy
         detection = detect_platform(target_url)
@@ -545,7 +573,7 @@ async def start_crawl(url: str = Form(...)):
             detection.get("platform", "Generic"),
             detection.get("strategy", "Scrapy HTML Crawl"),
         )
-        # Try API/RSS/Sitemap extraction first
+        # Try API/RSS/Sitemap extraction first (session not needed for public APIs)
         pages, used_strategy = run_strategy(detection)
         if pages:
             # Save results directly
@@ -563,13 +591,13 @@ async def start_crawl(url: str = Form(...)):
             api_key = os.environ.get("GOOGLE_AI_STUDIO_API_KEY", "")
             _build_knowledge_index(api_key)
         else:
-            # Fall back to Scrapy spider
-            _run_crawl(target_url)
+            # Fall back to Scrapy spider (pass session file for authenticated crawls)
+            _run_crawl(target_url, session_file=_session_file)
             with _state_lock:
                 _crawl_state["strategy"] = "Scrapy HTML Crawl"
 
     thread = threading.Thread(
-        target=_run_with_detection, args=(url.strip(),), daemon=True
+        target=_run_with_detection, args=(url.strip(), session_file), daemon=True
     )
     thread.start()
     return RedirectResponse("/results", status_code=303)
@@ -1223,11 +1251,16 @@ async def api_factcheck_text(
 # Content Extractor – single-page full-content extraction
 # ---------------------------------------------------------------------------
 
-async def _extract_page_content(url: str) -> dict:
+async def _extract_page_content(url: str, session_cookies: list | None = None) -> dict:
     """Extract full content from a URL using Playwright.
 
     Returns a dict with title, meta_description, headings (h1-h6),
     paragraphs, images, and full text content.
+
+    *session_cookies* is an optional list of cookie dicts (as produced by
+    Playwright's ``context.cookies()`` / stored by ``crawler/auth.py``) that
+    will be injected into the browser context before navigation, enabling
+    access to login-protected pages.
     """
     from playwright.async_api import async_playwright  # noqa: PLC0415
 
@@ -1267,15 +1300,23 @@ async def _extract_page_content(url: str) -> dict:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             try:
-                context = await browser.new_context(
-                    user_agent=(
+                context_kwargs: dict = {
+                    "user_agent": (
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                         "AppleWebKit/537.36 (KHTML, like Gecko) "
                         "Chrome/124.0.0.0 Safari/537.36"
                     ),
-                    viewport={"width": 1280, "height": 800},
-                    locale="en-US",
-                )
+                    "viewport": {"width": 1280, "height": 800},
+                    "locale": "en-US",
+                }
+                # Inject saved session cookies when provided so the browser
+                # navigates as an authenticated user.
+                if session_cookies:
+                    context_kwargs["storage_state"] = {
+                        "cookies": session_cookies,
+                        "origins": [],
+                    }
+                context = await browser.new_context(**context_kwargs)
                 page = await context.new_page()
                 try:
                     await page.goto(url, wait_until="networkidle", timeout=30000)
@@ -1335,6 +1376,22 @@ async def _extract_page_content(url: str) -> dict:
                     " ? document.body.innerText.replace(/\\s+/g, ' ').trim() : ''"
                 )
                 result["text_content"] = text[:10000]
+
+                # Always check for login / authentication walls in the rendered
+                # text — even when session cookies were provided, so that
+                # expired or invalid sessions are detected and reported clearly.
+                if is_login_wall(result["text_content"]):
+                    if session_cookies:
+                        result["error"] = (
+                            "Login required: the saved session appears to be expired "
+                            "or invalid. Please create a new session via the Account Manager."
+                        )
+                    else:
+                        result["error"] = (
+                            "Login required: this page is protected by authentication. "
+                            "Use the Account Manager to create an authenticated session, "
+                            "then re-run the extraction with that session selected."
+                        )
             finally:
                 await browser.close()
     except Exception as exc:  # noqa: BLE001
@@ -1347,7 +1404,15 @@ async def _extract_page_content(url: str) -> dict:
 @app.get("/extract", response_class=HTMLResponse)
 async def extract_page(request: Request):
     """Content Extractor – single-page full-content extraction UI."""
-    return templates.TemplateResponse("extract.html", {"request": request})
+    accounts = _load_accounts()
+    # Only surface accounts that completed login successfully
+    usable_accounts = [
+        a for a in accounts
+        if a.get("login_status") == "success" and a.get("session_file")
+    ]
+    return templates.TemplateResponse(
+        "extract.html", {"request": request, "accounts": usable_accounts}
+    )
 
 
 @app.post("/extract-content")
@@ -1357,5 +1422,24 @@ async def extract_content(request: Request, body: ExtractRequest):
     url = body.url.strip()
     if not url:
         return JSONResponse({"error": "url is required"}, status_code=400)
-    data = await _extract_page_content(url)
+
+    # Resolve session cookies from account_index when provided
+    session_cookies: list | None = None
+    if body.account_index is not None:
+        accounts = _load_accounts()
+        if 0 <= body.account_index < len(accounts):
+            acc = accounts[body.account_index]
+            session_path = acc.get("session_file", "")
+            # session_file may be stored as an absolute path or a bare filename
+            if session_path and not os.path.isabs(session_path):
+                session_path = os.path.join(BASE_DIR, session_path)
+            if session_path and os.path.exists(session_path):
+                try:
+                    with open(session_path, "r", encoding="utf-8") as fh:
+                        sd = json.load(fh)
+                    session_cookies = sd.get("cookies") or []
+                except Exception as exc:
+                    _log.warning("Could not load session cookies: %s", exc)
+
+    data = await _extract_page_content(url, session_cookies=session_cookies)
     return JSONResponse(data)
