@@ -1,0 +1,172 @@
+{% extends "_base.html" %}
+{% block title %}Platform Detection – Scrapy Crawler{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-4xl mx-auto">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Platform Detection</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Analyze any URL to detect its CMS / platform and choose the optimal extraction strategy.</p>
+  </div>
+
+  <!-- Last crawl platform info -->
+  {% if crawl_state.platform %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm mb-6">
+    <h2 class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-3">Last Crawl Detection</h2>
+    <div class="flex flex-wrap gap-4 items-center">
+      <div>
+        <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ crawl_state.platform }}</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{{ crawl_state.strategy }}</div>
+      </div>
+      {% if crawl_state.url %}
+      <div class="text-sm text-gray-500 dark:text-gray-400 break-all">
+        <span class="text-xs text-gray-400 block mb-0.5">URL</span>
+        <a href="{{ crawl_state.url }}" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:underline">{{ crawl_state.url }}</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Detection form -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm mb-6">
+    <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Detect a URL</h2>
+    <div class="flex gap-2 flex-wrap">
+      <div class="relative flex-1 min-w-[240px]">
+        <i data-lucide="globe" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
+        <input type="url" id="detect-url" placeholder="https://example.com"
+          class="w-full pl-10 pr-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-400" />
+      </div>
+      <button id="detect-btn" onclick="runDetection()"
+        class="px-5 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl transition-colors flex items-center gap-2">
+        <i data-lucide="cpu" class="w-4 h-4"></i> Detect Platform
+      </button>
+    </div>
+    <p class="text-xs text-gray-400 dark:text-gray-600 mt-2">Detection probes meta tags, HTML patterns, API endpoints, RSS feeds, and sitemap.xml.</p>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading-banner" class="hidden mb-5 flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 px-4 py-3 rounded-xl text-sm">
+    <div class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0"></div>
+    <span>Analyzing URL — probing meta tags, API endpoints, RSS feeds…</span>
+  </div>
+
+  <!-- Error -->
+  <div id="error-banner" class="hidden mb-5 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded-xl text-sm">
+    <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+    <span id="error-text"></span>
+  </div>
+
+  <!-- Results -->
+  <div id="detection-result" class="hidden"></div>
+
+  <!-- Supported platforms reference -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm mt-6">
+    <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Supported Platforms</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for platform, strategy, color in [
+        ('WordPress',    'WordPress REST API',      'indigo'),
+        ('WooCommerce',  'WooCommerce REST API',    'violet'),
+        ('Substack',     'Substack Archive API',    'orange'),
+        ('Ghost',        'Ghost Content API',       'gray'),
+        ('Blogger',      'Blogger Atom Feed',       'amber'),
+        ('Medium',       'Medium RSS Feed',         'emerald'),
+        ('Shopify',      'Shopify Products API',    'green'),
+        ('Squarespace',  'Squarespace JSON Feed',   'sky'),
+        ('Wix',          'Playwright JS Rendering', 'pink'),
+        ('Webflow',      'Scrapy HTML Crawl',       'teal'),
+        ('Drupal',       'Scrapy HTML Crawl',       'blue'),
+        ('News Website', 'RSS Feed Extraction',     'rose'),
+      ] %}
+      <div class="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800/60 rounded-xl">
+        <div class="w-2 h-2 rounded-full bg-{{ color }}-500 mt-1.5 shrink-0"></div>
+        <div>
+          <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ platform }}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ strategy }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function runDetection() {
+    var url = document.getElementById('detect-url').value.trim();
+    if (!url) { alert('Please enter a URL.'); return; }
+    var loading = document.getElementById('loading-banner');
+    var error   = document.getElementById('error-banner');
+    var result  = document.getElementById('detection-result');
+    var btn     = document.getElementById('detect-btn');
+    loading.classList.remove('hidden'); loading.style.display = 'flex';
+    error.classList.add('hidden');
+    result.classList.add('hidden');
+    btn.disabled = true;
+
+    // Use /api/v1/detect-platform – need API key from localStorage or prompt
+    var apiKey = localStorage.getItem('scrapy_api_key') || '';
+    if (!apiKey) {
+      apiKey = prompt('Enter your API key (get one from /developer):', '');
+      if (!apiKey) { loading.classList.add('hidden'); btn.disabled = false; return; }
+      localStorage.setItem('scrapy_api_key', apiKey);
+    }
+
+    try {
+      var resp = await fetch('/api/v1/detect-platform', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
+        body: JSON.stringify({url: url})
+      });
+      var data = await resp.json();
+      if (!resp.ok) {
+        document.getElementById('error-text').textContent = '⚠️ ' + (data.detail || 'Detection failed');
+        error.classList.remove('hidden'); error.style.display = 'flex';
+        return;
+      }
+      renderResult(data);
+    } catch(err) {
+      document.getElementById('error-text').textContent = '⚠️ Request failed: ' + err.message;
+      error.classList.remove('hidden'); error.style.display = 'flex';
+    } finally {
+      loading.classList.add('hidden');
+      btn.disabled = false;
+    }
+  }
+
+  function renderResult(d) {
+    var html = '<div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm">' +
+      '<div class="flex items-start justify-between gap-4 mb-5 flex-wrap">' +
+        '<div><div class="text-3xl font-bold text-gray-900 dark:text-white mb-1">' + esc(d.platform) + '</div>' +
+          '<div class="flex items-center gap-2 flex-wrap">' +
+            '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">' + esc(d.strategy) + '</span>' +
+            (d.js_heavy ? '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">⚡ JS-heavy</span>' : '') +
+          '</div></div>' +
+        '</div>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">' +
+        (d.api_endpoint ? '<div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">API Endpoint</div><a href="' + esc(d.api_endpoint) + '" target="_blank" class="text-indigo-600 dark:text-indigo-400 text-xs break-all hover:underline">' + esc(d.api_endpoint) + '</a></div>' : '') +
+        (d.rss_url     ? '<div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">RSS Feed</div><a href="' + esc(d.rss_url) + '" target="_blank" class="text-indigo-600 dark:text-indigo-400 text-xs break-all hover:underline">' + esc(d.rss_url) + '</a></div>' : '') +
+        (d.sitemap_url ? '<div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Sitemap</div><a href="' + esc(d.sitemap_url) + '" target="_blank" class="text-indigo-600 dark:text-indigo-400 text-xs break-all hover:underline">' + esc(d.sitemap_url) + '</a></div>' : '') +
+      '</div>' +
+      (d.signals && d.signals.length ? '<div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Detection Signals</div><ul class="space-y-1">' + d.signals.map(s => '<li class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block"></span>' + esc(s) + '</li>').join('') + '</ul></div>' : '') +
+      '<div class="mt-5 flex gap-2 flex-wrap">' +
+        '<a href="/" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors">Crawl this URL</a>' +
+      '</div>' +
+    '</div>';
+    var result = document.getElementById('detection-result');
+    result.innerHTML = html;
+    result.classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  document.getElementById('detect-url').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') runDetection();
+  });
+</script>
+{% endblock %}

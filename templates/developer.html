@@ -1,0 +1,190 @@
+{% extends "_base.html" %}
+{% block title %}Developer API – Scrapy Crawler{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-5xl mx-auto">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Developer API</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Programmatic access to the crawler, platform detection, and AI fact-checking.</p>
+  </div>
+
+  <!-- API docs links -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+    <a href="/docs" target="_blank" class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-all group flex flex-col items-center text-center">
+      <div class="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+        <i data-lucide="book-open" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+      </div>
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">Swagger UI</h3>
+      <p class="text-xs text-gray-500 dark:text-gray-400">Interactive API docs at <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">/docs</code></p>
+    </a>
+    <a href="/redoc" target="_blank" class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-all group flex flex-col items-center text-center">
+      <div class="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+        <i data-lucide="file-text" class="w-5 h-5 text-violet-600 dark:text-violet-400"></i>
+      </div>
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">ReDoc</h3>
+      <p class="text-xs text-gray-500 dark:text-gray-400">Clean reference docs at <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">/redoc</code></p>
+    </a>
+    <a href="/api/v1/stats" target="_blank" class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition-all group flex flex-col items-center text-center">
+      <div class="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+        <i data-lucide="activity" class="w-5 h-5 text-emerald-600 dark:text-emerald-400"></i>
+      </div>
+      <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">Live Stats</h3>
+      <p class="text-xs text-gray-500 dark:text-gray-400">Public stats at <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">/api/v1/stats</code></p>
+    </a>
+  </div>
+
+  <!-- API Key Management -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm mb-6">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+      <div>
+        <h2 class="text-base font-semibold text-gray-900 dark:text-white">API Keys</h2>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Send <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">X-API-Key: &lt;key&gt;</code> header with every request.</p>
+      </div>
+      <button onclick="generateKey()" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors">
+        <i data-lucide="plus" class="w-4 h-4"></i> Generate Key
+      </button>
+    </div>
+
+    <div id="new-key-banner" class="hidden mb-4 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+      <div class="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mb-1">✅ New API Key Generated — copy it now, it won't be shown again.</div>
+      <code id="new-key-value" class="text-sm font-mono text-emerald-800 dark:text-emerald-200 break-all"></code>
+    </div>
+
+    {% if api_keys %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/50">
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Key</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Requests</th>
+            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Created</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+          {% for k in api_keys %}
+          <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+            <td class="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-500">
+              {{ k.key[:12] }}…<button onclick="copyKey('{{ k.key }}')" class="ml-2 text-indigo-500 hover:text-indigo-700 text-xs underline">copy</button>
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{{ k.name }}</td>
+            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{{ k.requests_count }}</td>
+            <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap hidden sm:table-cell">{{ k.created_at[:10] if k.created_at else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-500 dark:text-gray-400">No API keys yet. Generate one above.</p>
+    {% endif %}
+  </div>
+
+  <!-- Endpoint reference -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm mb-6">
+    <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-5">Endpoint Reference</h2>
+
+    {% set endpoints = [
+      ('POST', '/api/v1/crawl',           'Start a crawl job', '{"url":"https://example.com"}', '{"job_id":"abc123","status":"started"}'),
+      ('GET',  '/api/v1/status/{job_id}', 'Check job status',  '',                              '{"job_id":"abc123","status":"running","pages_crawled":23}'),
+      ('GET',  '/api/v1/results/{job_id}','Get crawl results', '',                              '{"job_id":"abc123","pages":[{"url":"...","title":"...","text":"..."}]}'),
+      ('POST', '/api/v1/detect-platform', 'Detect platform',   '{"url":"https://example.com"}', '{"platform":"WordPress","strategy":"WordPress REST API"}'),
+      ('POST', '/api/v1/factcheck',       'Fact-check text',   '{"text":"The earth is flat."}', '{"claims":[{"claim":"...","verdict":"false","explanation":"..."}]}'),
+    ] %}
+
+    <div class="space-y-4">
+      {% for method, path, desc, body, resp in endpoints %}
+      <div class="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+        <div class="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800/60">
+          <span class="shrink-0 px-2.5 py-0.5 rounded text-xs font-bold
+            {% if method == 'GET' %}bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300
+            {% else %}bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300{% endif %}">{{ method }}</span>
+          <code class="text-sm font-mono text-gray-900 dark:text-gray-100 flex-1">{{ path }}</code>
+          <span class="text-xs text-gray-500 hidden sm:block">{{ desc }}</span>
+        </div>
+        <div class="px-4 py-3 grid grid-cols-1 {% if body %}sm:grid-cols-2{% endif %} gap-3 text-xs">
+          {% if body %}
+          <div>
+            <div class="font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Request Body</div>
+            <pre class="bg-gray-950 dark:bg-gray-950 text-emerald-400 p-3 rounded-lg overflow-x-auto text-xs leading-relaxed">{{ body }}</pre>
+          </div>
+          {% endif %}
+          <div>
+            <div class="font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Response</div>
+            <pre class="bg-gray-950 dark:bg-gray-950 text-indigo-400 p-3 rounded-lg overflow-x-auto text-xs leading-relaxed">{{ resp }}</pre>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Rate limits info -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
+    <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Rate Limits &amp; Auth</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+      <div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Authentication</div>
+        <p class="text-gray-700 dark:text-gray-300 text-xs leading-relaxed">All <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">/api/v1/*</code> endpoints require the <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">X-API-Key</code> header.</p>
+      </div>
+      <div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Crawl / Status / Results</div>
+        <p class="text-gray-700 dark:text-gray-300 text-xs leading-relaxed">100 requests per hour per IP.</p>
+      </div>
+      <div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Fact Check</div>
+        <p class="text-gray-700 dark:text-gray-300 text-xs leading-relaxed">50 requests per hour (AI cost).</p>
+      </div>
+    </div>
+    <div class="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+      <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Quick Start (curl)</div>
+      <pre class="text-xs font-mono text-gray-700 dark:text-gray-300 overflow-x-auto leading-relaxed"># Start a crawl
+curl -X POST {{ request.url.scheme }}://{{ request.url.netloc }}/api/v1/crawl \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}'
+
+# Check status
+curl {{ request.url.scheme }}://{{ request.url.netloc }}/api/v1/status/JOB_ID \
+  -H "X-API-Key: YOUR_KEY"</pre>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function generateKey() {
+    var name = prompt('Name for this key (e.g. "My App"):', 'My Key');
+    if (!name) return;
+    try {
+      var resp = await fetch('/developer/generate-key', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name})
+      });
+      var data = await resp.json();
+      var banner = document.getElementById('new-key-banner');
+      document.getElementById('new-key-value').textContent = data.key;
+      banner.classList.remove('hidden');
+      banner.scrollIntoView({behavior: 'smooth'});
+      navigator.clipboard && navigator.clipboard.writeText(data.key);
+      lucide.createIcons();
+    } catch(err) {
+      alert('Failed to generate key: ' + err.message);
+    }
+  }
+
+  function copyKey(key) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(key).then(function() {
+        alert('Key copied to clipboard.');
+      });
+    } else {
+      prompt('Copy this key:', key);
+    }
+  }
+</script>
+{% endblock %}
