@@ -17,6 +17,12 @@ _BOT_CHALLENGE_PHRASES = (
     "please enable javascript",
     "javascript is required",
     "you need to enable javascript",
+    # Login / sign-in walls that hide content behind authentication
+    "sign in to continue",
+    "please sign in to continue",
+    "you must be signed in",
+    "log in to continue",
+    "login to continue",
 )
 
 

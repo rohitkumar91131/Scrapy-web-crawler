@@ -41,9 +41,19 @@ PLATFORM_STRATEGIES = {
     "Webflow":      "Scrapy HTML Crawl",
     "Drupal":       "Scrapy HTML Crawl",
     "Magento":      "Scrapy HTML Crawl",
+    "Google":       "Playwright JS Rendering",
     "News Website": "RSS Feed Extraction",
     "Generic":      "Scrapy HTML Crawl",
 }
+
+# Google-owned domains that serve JS-heavy SPAs and require Playwright rendering.
+# Subdomains of these domains are also matched.
+_GOOGLE_SPA_DOMAINS = (
+    "gemini.google.com",
+    "docs.google.com",
+    "sites.google.com",
+    "ai.google",
+)
 
 
 def _is_safe_url(url: str) -> bool:
@@ -180,6 +190,11 @@ def _detect_from_html(
     # embedded in the page source.  They are NOT URL validation checks.
     # We use re.search() throughout so the intent is unambiguous.
     netloc = parsed.netloc.lower()
+
+    # ── Google / Gemini (JS-heavy SPAs) ──────────────────────────────
+    if any(_netloc_matches(netloc, d) for d in _GOOGLE_SPA_DOMAINS):
+        signals.append("Google SPA detected (gemini.google.com or related domain)")
+        return {"name": "Google", "strategy": "Playwright JS Rendering", "api_endpoint": None}
 
     # Extract <meta name="generator"> value
     meta_gen = ""
@@ -347,75 +362,3 @@ def _probe_rss(base_url: str, signals: list) -> str | None:
             signals.append(f"RSS feed found at {path}")
             return url
     return None
-
-    """
-    Analyze a URL and return the detected platform + best extraction strategy.
-
-    Returns a dict with:
-        platform, strategy, api_endpoint, rss_url, sitemap_url,
-        js_heavy, signals, error
-    """
-    parsed = urlparse(url)
-    base_url = f"{parsed.scheme}://{parsed.netloc}"
-
-    result = {
-        "url": url,
-        "platform": "Generic",
-        "strategy": "Scrapy HTML Crawl",
-        "api_endpoint": None,
-        "rss_url": None,
-        "sitemap_url": None,
-        "js_heavy": False,
-        "signals": [],
-        "error": None,
-    }
-
-    # ── Fetch homepage ────────────────────────────────────────────────
-    try:
-        resp = requests.get(
-            url, headers=HEADERS, timeout=PROBE_TIMEOUT, allow_redirects=True
-        )
-        html = resp.text
-    except requests.RequestException as exc:
-        result["error"] = str(exc)
-        logger.warning("Platform detection fetch error for %s: %s", url, exc)
-        return result
-
-    # ── JS-heavy detection ────────────────────────────────────────────
-    visible_text = re.sub(r"<[^>]+>", " ", html)
-    visible_text = " ".join(visible_text.split())
-    if len(visible_text) < 300 and len(html) > 5000:
-        result["js_heavy"] = True
-        result["signals"].append("Page appears JavaScript-rendered (low visible text)")
-
-    # ── Platform detection from HTML ──────────────────────────────────
-    platform_info = _detect_from_html(html, base_url, parsed, result["signals"])
-    if platform_info:
-        result["platform"] = platform_info["name"]
-        result["strategy"] = platform_info["strategy"]
-        result["api_endpoint"] = platform_info.get("api_endpoint")
-
-    # ── RSS feed probe ────────────────────────────────────────────────
-    rss = _probe_rss(base_url, result["signals"])
-    if rss:
-        result["rss_url"] = rss
-        if result["strategy"] == "Scrapy HTML Crawl":
-            result["strategy"] = "RSS Feed Extraction"
-
-    # ── Sitemap probe ─────────────────────────────────────────────────
-    sitemap_url = urljoin(base_url, "/sitemap.xml")
-    if _probe_url(sitemap_url):
-        result["sitemap_url"] = sitemap_url
-        result["signals"].append("sitemap.xml found")
-
-    # ── JS fallback ───────────────────────────────────────────────────
-    if result["js_heavy"] and result["strategy"] == "Scrapy HTML Crawl":
-        result["strategy"] = "Playwright JS Rendering"
-
-    logger.info(
-        "Platform detected for %s → %s | strategy: %s",
-        url,
-        result["platform"],
-        result["strategy"],
-    )
-    return result
