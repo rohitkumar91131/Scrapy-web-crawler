@@ -299,6 +299,7 @@ def _detect_from_html(
         return {"name": "Magento", "strategy": "Scrapy HTML Crawl", "api_endpoint": None}
 
     # ── Generic news site ────────────────────────────────────────────
+    html_lower = html.lower()
     news_signals = [
         "article:published_time",
         "datepublished",
