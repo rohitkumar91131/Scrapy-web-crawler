@@ -8,6 +8,7 @@ import sys
 import threading
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from google import genai
 from fastapi import FastAPI, Form, Request, Security, HTTPException, Depends
@@ -1234,6 +1235,22 @@ async def _extract_page_content(url: str) -> dict:
         "error": None,
     }
 
+    # Domains that serve JS-heavy SPAs and may need extra rendering time.
+    # Subdomains of these entries are also matched (e.g. gemini.google.com
+    # for google.com). Being specific avoids misclassifying unrelated sites.
+    _JS_HEAVY_DOMAINS = (
+        "gemini.google.com",
+        "docs.google.com",
+        "sites.google.com",
+        "ai.google",
+    )
+
+    _parsed_netloc = urlparse(url).netloc.lower()
+    _is_js_heavy = any(
+        _parsed_netloc == d or _parsed_netloc.endswith("." + d)
+        for d in _JS_HEAVY_DOMAINS
+    )
+
     try:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
@@ -1253,6 +1270,15 @@ async def _extract_page_content(url: str) -> dict:
                 except Exception:
                     # Fallback: domcontentloaded is faster and more permissive
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                # For JS-heavy SPAs (e.g. Gemini share pages), allow additional
+                # time for async content (conversation messages, dynamic data)
+                # to finish rendering after the initial network-idle state.
+                if _is_js_heavy:
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=15000)
+                    except Exception:
+                        pass
 
                 result["title"] = (await page.title() or "").strip()
 
