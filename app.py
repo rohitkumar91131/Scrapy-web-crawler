@@ -1253,6 +1253,8 @@ async def _extract_page_content(url: str) -> dict:
         "docs.google.com",
         "sites.google.com",
         "ai.google",
+        "chatgpt.com",
+        "chat.openai.com",
     )
 
     _parsed_netloc = urlparse(url).netloc.lower()

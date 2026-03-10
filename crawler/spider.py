@@ -23,6 +23,9 @@ _BOT_CHALLENGE_PHRASES = (
     "you must be signed in",
     "log in to continue",
     "login to continue",
+    # ChatGPT / OpenAI-specific error pages for shared conversations
+    "can't load shared conversation",
+    "unable to load conversation",
 )
 
 
@@ -173,6 +176,9 @@ class WebCrawlerSpider(scrapy.Spider):
             "h1": [h.strip() for h in response.css("h1::text").getall() if h.strip()],
             "h2": [h.strip() for h in response.css("h2::text").getall() if h.strip()],
             "h3": [h.strip() for h in response.css("h3::text").getall() if h.strip()],
+            "h4": [h.strip() for h in response.css("h4::text").getall() if h.strip()],
+            "h5": [h.strip() for h in response.css("h5::text").getall() if h.strip()],
+            "h6": [h.strip() for h in response.css("h6::text").getall() if h.strip()],
         }
 
         # Extract visible text content, normalized
@@ -184,6 +190,24 @@ class WebCrawlerSpider(scrapy.Spider):
         text_content = " ".join(t.strip() for t in raw_texts if t.strip())
         # Limit to 5000 characters to keep results manageable
         text_content = text_content[:5000]
+
+        # Extract paragraphs
+        paragraphs = [
+            p.strip()
+            for p in response.css("p::text").getall()
+            if p.strip()
+        ]
+
+        # Extract images (src and alt text)
+        images = []
+        for img in response.css("img"):
+            src = img.attrib.get("src", "").strip()
+            if src and not src.startswith("data:"):
+                full_src = response.urljoin(src)
+                images.append({
+                    "src": full_src,
+                    "alt": img.attrib.get("alt", "").strip(),
+                })
 
         # Collect internal links
         internal_links = set()
@@ -213,6 +237,8 @@ class WebCrawlerSpider(scrapy.Spider):
             "title": title,
             "meta_description": meta_description,
             "headings": headings,
+            "paragraphs": paragraphs[:100],
+            "images": images[:50],
             "text_content": text_content,
             "internal_links": sorted(internal_links),
             "crawl_timestamp": datetime.now(timezone.utc).isoformat(),
