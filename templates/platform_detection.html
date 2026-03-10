@@ -120,7 +120,9 @@
         headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
         body: JSON.stringify({url: url})
       });
-      var data = await resp.json();
+      var _text = await resp.text();
+      var data;
+      try { data = JSON.parse(_text); } catch (e) { data = {error: 'Server returned an invalid response.'}; }
       if (!resp.ok) {
         document.getElementById('error-text').textContent = '⚠️ ' + (data.detail || 'Detection failed');
         error.classList.remove('hidden'); error.style.display = 'flex';

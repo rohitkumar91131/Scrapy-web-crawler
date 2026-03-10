@@ -110,7 +110,9 @@
     var thinking = addThinking();
     try {
       var resp = await fetch('/ask', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({question: q}) });
-      var data = await resp.json();
+      var _text = await resp.text();
+      var data;
+      try { data = JSON.parse(_text); } catch (e) { data = {error: 'Server returned an invalid response.'}; }
       thinking.remove();
       if (!resp.ok || data.error) {
         if (resp.status === 404) document.getElementById('no-index-banner').style.display = 'flex';
