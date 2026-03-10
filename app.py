@@ -639,6 +639,37 @@ async def site_map(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Extract Content routes
+# ---------------------------------------------------------------------------
+
+@app.get("/extract", response_class=HTMLResponse)
+async def extract_page(request: Request):
+    """Extract Content tool page."""
+    return templates.TemplateResponse("extract.html", {"request": request, "result": None, "error": None})
+
+
+@app.post("/extract", response_class=HTMLResponse)
+@limiter.limit("30/minute")
+async def extract_content(request: Request, url: str = Form(...)):
+    """Extract all content (text, headings, images, links) from a given URL."""
+    from crawler.extractor import extract_page_content
+
+    url = url.strip()
+    if not url:
+        return templates.TemplateResponse(
+            "extract.html",
+            {"request": request, "result": None, "error": "Please provide a URL."},
+        )
+
+    result = extract_page_content(url)
+    error = result.get("error")
+    return templates.TemplateResponse(
+        "extract.html",
+        {"request": request, "result": result, "error": error},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Fact-check routes
 # ---------------------------------------------------------------------------
 
@@ -1006,6 +1037,10 @@ class ApiFactCheckRequest(BaseModel):
     text: str
 
 
+class ApiExtractRequest(BaseModel):
+    url: str
+
+
 # ── GET /api/v1/stats (no auth – public health check) ──────────────────────
 
 @app.get("/api/v1/stats", tags=["API"])
@@ -1202,3 +1237,33 @@ async def api_factcheck_text(
                 "correct_information": "",
             })
     return JSONResponse({"claims": results})
+
+
+# ── POST /api/v1/extract ─────────────────────────────────────────────────────
+
+@app.post("/api/v1/extract", tags=["API"])
+@limiter.limit("30/minute")
+async def api_extract_content(
+    request: Request,
+    body: ApiExtractRequest,
+    _key: str = Depends(_require_api_key),
+):
+    """
+    Extract all content (title, meta description, headings, paragraphs,
+    images, and links) from any public URL.
+
+    Automatically falls back to Playwright rendering for JavaScript-heavy pages.
+
+    Requires header: ``X-API-Key: <your-key>``
+    """
+    from crawler.extractor import extract_page_content
+
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    result = extract_page_content(url)
+    if result.get("error") and not result.get("title"):
+        raise HTTPException(status_code=502, detail=result["error"])
+
+    return JSONResponse(result)

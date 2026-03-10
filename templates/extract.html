@@ -1,0 +1,260 @@
+{% extends "_base.html" %}
+{% block title %}Extract Content – Scrapy Crawler{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-5xl mx-auto">
+
+  <!-- Page header -->
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Extract Content</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      Enter any URL to extract its full content — headings, text, images, and links.
+      JavaScript-heavy pages are rendered automatically.
+    </p>
+  </div>
+
+  <!-- Input form -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm mb-6">
+    <form action="/extract" method="post" id="extract-form">
+      <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider" for="url">
+        Website URL
+      </label>
+      <div class="flex gap-2 flex-wrap">
+        <div class="relative flex-1 min-w-[240px]">
+          <i data-lucide="globe" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
+          <input
+            type="url" id="url" name="url"
+            placeholder="https://example.com"
+            value="{{ result.url if result else '' }}"
+            required
+            class="w-full pl-10 pr-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 transition-all text-gray-900 dark:text-gray-100 placeholder-gray-400"
+          />
+        </div>
+        <button
+          type="submit" id="submit-btn"
+          class="px-5 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center gap-2"
+        >
+          <i data-lucide="file-down" class="w-4 h-4"></i> Extract
+        </button>
+      </div>
+      <p class="text-xs text-gray-400 dark:text-gray-600 mt-2">
+        Works with any publicly accessible website. JS-heavy pages (e.g. SPAs) are rendered via Playwright.
+      </p>
+    </form>
+  </div>
+
+  <!-- Error banner -->
+  {% if error %}
+  <div class="mb-6 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded-xl text-sm">
+    <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+    <span>{{ error }}</span>
+  </div>
+  {% endif %}
+
+  <!-- Results -->
+  {% if result and not error %}
+
+  <!-- Summary cards -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+    {% set heading_count = (result.headings.h1 | length) + (result.headings.h2 | length) + (result.headings.h3 | length) + (result.headings.h4 | length) + (result.headings.h5 | length) + (result.headings.h6 | length) %}
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm text-center">
+      <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{{ heading_count }}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Headings</div>
+    </div>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm text-center">
+      <div class="text-2xl font-bold text-violet-600 dark:text-violet-400">{{ result.paragraphs | length }}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Paragraphs</div>
+    </div>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm text-center">
+      <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ result.images | length }}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Images</div>
+    </div>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm text-center">
+      <div class="text-2xl font-bold text-sky-600 dark:text-sky-400">{{ result.links | length }}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Links</div>
+    </div>
+  </div>
+
+  <!-- Page meta -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm mb-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <i data-lucide="info" class="w-4 h-4 text-indigo-500"></i> Page Info
+      </h2>
+      {% if result.used_playwright %}
+      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+        ⚡ Rendered via Playwright
+      </span>
+      {% endif %}
+    </div>
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <div>
+        <dt class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-0.5">URL</dt>
+        <dd class="text-gray-900 dark:text-gray-100 break-all">
+          <a href="{{ result.url }}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 hover:underline">{{ result.url }}</a>
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-0.5">Title</dt>
+        <dd class="text-gray-900 dark:text-gray-100">{{ result.title or '—' }}</dd>
+      </div>
+      {% if result.meta_description %}
+      <div class="sm:col-span-2">
+        <dt class="text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wider mb-0.5">Meta Description</dt>
+        <dd class="text-gray-700 dark:text-gray-300">{{ result.meta_description }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+  </div>
+
+  <!-- Headings -->
+  {% set any_headings = result.headings.h1 or result.headings.h2 or result.headings.h3 or result.headings.h4 or result.headings.h5 or result.headings.h6 %}
+  {% if any_headings %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm mb-5">
+    <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
+      <i data-lucide="heading-1" class="w-4 h-4 text-indigo-500"></i> Headings
+    </h2>
+    <div class="space-y-1.5">
+      {% for level in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] %}
+        {% for heading in result.headings[level] %}
+        <div class="flex items-baseline gap-2">
+          <span class="text-xs font-bold text-gray-400 dark:text-gray-600 w-7 shrink-0 uppercase">{{ level }}</span>
+          <span class="text-sm text-gray-800 dark:text-gray-200
+            {% if level == 'h1' %}font-bold text-base
+            {% elif level == 'h2' %}font-semibold
+            {% elif level == 'h3' %}font-medium
+            {% endif %}">{{ heading }}</span>
+        </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Text content -->
+  {% if result.paragraphs %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm mb-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <i data-lucide="file-text" class="w-4 h-4 text-violet-500"></i> Text Content
+      </h2>
+      <button
+        onclick="document.getElementById('paragraphs-list').classList.toggle('hidden')"
+        class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+      >Toggle</button>
+    </div>
+    <div id="paragraphs-list" class="space-y-2 max-h-96 overflow-y-auto pr-1">
+      {% for para in result.paragraphs %}
+      <p class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed border-l-2 border-gray-200 dark:border-gray-700 pl-3">{{ para }}</p>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Images -->
+  {% if result.images %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm mb-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <i data-lucide="image" class="w-4 h-4 text-emerald-500"></i> Images
+        <span class="text-xs font-normal text-gray-400">({{ result.images | length }})</span>
+      </h2>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for img in result.images %}
+      <div class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-800/60 group">
+        <div class="aspect-video flex items-center justify-center overflow-hidden bg-gray-100 dark:bg-gray-800">
+          <img
+            src="{{ img.src }}"
+            alt="{{ img.alt or '' }}"
+            loading="lazy"
+            onerror="this.style.display='none';this.parentElement.querySelector('.img-fallback').style.display='flex'"
+            class="max-h-full max-w-full object-contain"
+          />
+          <span class="img-fallback hidden items-center justify-center w-full h-full text-xs text-gray-400">Image unavailable</span>
+        </div>
+        <div class="p-2.5">
+          {% if img.alt %}
+          <p class="text-xs text-gray-600 dark:text-gray-400 truncate" title="{{ img.alt }}">{{ img.alt }}</p>
+          {% endif %}
+          <a href="{{ img.src }}" target="_blank" rel="noopener noreferrer" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline break-all line-clamp-1 mt-0.5 block">{{ img.src }}</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Links -->
+  {% if result.links %}
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm mb-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <i data-lucide="link" class="w-4 h-4 text-sky-500"></i> Links
+        <span class="text-xs font-normal text-gray-400">({{ result.links | length }})</span>
+      </h2>
+      <button
+        onclick="document.getElementById('links-list').classList.toggle('hidden')"
+        class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+      >Toggle</button>
+    </div>
+    <div id="links-list" class="space-y-1 max-h-72 overflow-y-auto pr-1">
+      {% for link in result.links %}
+      <div class="flex items-start gap-2 py-1 border-b border-gray-100 dark:border-gray-800 last:border-0">
+        <i data-lucide="external-link" class="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5"></i>
+        <div class="min-w-0">
+          {% if link.text %}
+          <span class="text-xs font-medium text-gray-700 dark:text-gray-300 block truncate">{{ link.text }}</span>
+          {% endif %}
+          <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline break-all">{{ link.url }}</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Raw JSON export -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+        <i data-lucide="braces" class="w-4 h-4 text-gray-500"></i> Raw JSON
+      </h2>
+      <button
+        onclick="copyJson()"
+        id="copy-btn"
+        class="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors flex items-center gap-1.5"
+      >
+        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy JSON
+      </button>
+    </div>
+    <pre id="json-output" class="text-xs bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 p-4 rounded-xl overflow-x-auto max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-800 whitespace-pre-wrap break-all">{{ result | tojson(indent=2) }}</pre>
+  </div>
+
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('extract-form').addEventListener('submit', function () {
+    var btn = document.getElementById('submit-btn');
+    btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg> Extracting…';
+    btn.disabled = true;
+  });
+
+  function copyJson() {
+    var text = document.getElementById('json-output').textContent;
+    navigator.clipboard.writeText(text).then(function () {
+      var btn = document.getElementById('copy-btn');
+      btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Copied!';
+      lucide.createIcons();
+      setTimeout(function () {
+        btn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy JSON';
+        lucide.createIcons();
+      }, 2000);
+    });
+  }
+</script>
+{% endblock %}
