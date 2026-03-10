@@ -1,0 +1,310 @@
+{% extends "_base.html" %}
+{% block title %}Content Extractor – Scrapy Crawler{% endblock %}
+
+{% block content %}
+<div class="p-6 max-w-7xl mx-auto">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">Content Extractor</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      Enter any URL to extract its full content — headings, text, and images — from a single page.
+    </p>
+  </div>
+
+  <!-- Input form -->
+  <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm max-w-2xl mb-6">
+    <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Extract from URL</h2>
+    <div class="mb-4">
+      <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider" for="url-input">
+        Website URL
+      </label>
+      <div class="relative">
+        <i data-lucide="globe" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
+        <input
+          type="url"
+          id="url-input"
+          placeholder="https://example.com/page"
+          class="w-full pl-10 pr-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 transition-all text-gray-900 dark:text-gray-100 placeholder-gray-400"
+        />
+      </div>
+    </div>
+    <button
+      id="extract-btn"
+      onclick="runExtract()"
+      class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
+    >
+      <i data-lucide="scan-text" class="w-4 h-4"></i> Extract Content
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading-banner" class="hidden mb-5 flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 px-4 py-3 rounded-xl text-sm">
+    <div class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0"></div>
+    <span><strong>Fetching &amp; extracting page content…</strong> This may take a few seconds for JS-heavy sites.</span>
+  </div>
+
+  <!-- Error -->
+  <div id="error-banner" class="hidden mb-5 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded-xl text-sm">
+    <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+    <span id="error-text"></span>
+  </div>
+
+  <!-- Results -->
+  <div id="results-section" class="hidden space-y-6">
+
+    <!-- Page info -->
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+      <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+        <i data-lucide="info" class="w-4 h-4 text-indigo-500"></i> Page Info
+      </h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex gap-2">
+          <dt class="font-semibold text-gray-500 dark:text-gray-400 shrink-0 w-32">Title</dt>
+          <dd id="res-title" class="text-gray-900 dark:text-gray-100 break-all">—</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="font-semibold text-gray-500 dark:text-gray-400 shrink-0 w-32">URL</dt>
+          <dd id="res-url" class="text-gray-900 dark:text-gray-100 break-all">—</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="font-semibold text-gray-500 dark:text-gray-400 shrink-0 w-32">Description</dt>
+          <dd id="res-desc" class="text-gray-900 dark:text-gray-100">—</dd>
+        </div>
+      </dl>
+    </div>
+
+    <!-- Summary stats -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div id="stat-headings" class="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mb-1">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Headings</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div id="stat-paragraphs" class="text-3xl font-bold text-violet-600 dark:text-violet-400 mb-1">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Paragraphs</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div id="stat-images" class="text-3xl font-bold text-emerald-600 dark:text-emerald-400 mb-1">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Images</div>
+      </div>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 text-center shadow-sm">
+        <div id="stat-chars" class="text-3xl font-bold text-amber-600 dark:text-amber-400 mb-1">—</div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider">Characters</div>
+      </div>
+    </div>
+
+    <!-- Headings -->
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+      <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+        <i data-lucide="heading" class="w-4 h-4 text-indigo-500"></i> Headings
+      </h2>
+      <div id="headings-container" class="space-y-2 text-sm"></div>
+    </div>
+
+    <!-- Text content -->
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <i data-lucide="file-text" class="w-4 h-4 text-violet-500"></i> Text Content
+        </h2>
+        <button
+          onclick="toggleFullText(this)"
+          class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+        >Show full text</button>
+      </div>
+      <!-- Paragraphs list -->
+      <div id="paragraphs-container" class="space-y-1.5 text-sm text-gray-700 dark:text-gray-300 max-h-80 overflow-y-auto pr-1"></div>
+      <!-- Full raw text -->
+      <pre id="text-full" class="hidden mt-4 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-xl p-4 max-h-96 overflow-y-auto"></pre>
+    </div>
+
+    <!-- Images -->
+    <div id="images-section" class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+      <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+        <i data-lucide="image" class="w-4 h-4 text-emerald-500"></i> Images
+      </h2>
+      <div id="images-container" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"></div>
+    </div>
+
+    <!-- Export -->
+    <div class="flex justify-end">
+      <button
+        onclick="exportJSON()"
+        class="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-colors"
+      >
+        <i data-lucide="download" class="w-4 h-4"></i> Export as JSON
+      </button>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  var _lastResult = null;
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function show(el) { el.classList.remove('hidden'); el.style.display = ''; }
+  function hide(el) { el.classList.add('hidden'); }
+
+  function toggleFullText(btn) {
+    var el = document.getElementById('text-full');
+    var collapsed = el.classList.toggle('hidden');
+    btn.textContent = collapsed ? 'Show full text' : 'Collapse';
+  }
+
+  function imgLoadError(e) {
+    var wrapper = e.target.parentElement;
+    if (wrapper) {
+      wrapper.innerHTML = '<span class="text-xs text-gray-400">\u26a0 load error</span>';
+    }
+  }
+
+  async function runExtract() {
+    var url = document.getElementById('url-input').value.trim();
+    if (!url) { alert('Please enter a URL.'); return; }
+
+    var btn      = document.getElementById('extract-btn');
+    var loading  = document.getElementById('loading-banner');
+    var errorBan = document.getElementById('error-banner');
+    var results  = document.getElementById('results-section');
+
+    btn.disabled = true;
+    show(loading);
+    hide(errorBan);
+    hide(results);
+
+    try {
+      var resp = await fetch('/extract-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      });
+      var data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        document.getElementById('error-text').textContent = '⚠️ ' + (data.error || 'Unknown error');
+        show(errorBan);
+        return;
+      }
+
+      _lastResult = data;
+      renderResults(data);
+      show(results);
+      lucide.createIcons();
+    } catch (err) {
+      document.getElementById('error-text').textContent = '⚠️ Request failed: ' + err.message;
+      show(errorBan);
+    } finally {
+      hide(loading);
+      btn.disabled = false;
+    }
+  }
+
+  function renderResults(d) {
+    // Page info
+    document.getElementById('res-title').textContent = d.title || '(no title)';
+    document.getElementById('res-url').innerHTML = '<a href="' + esc(d.url) + '" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:underline">' + esc(d.url) + '</a>';
+    document.getElementById('res-desc').textContent = d.meta_description || '(none)';
+
+    // Count headings
+    var h = d.headings || {};
+    var totalH = ['h1','h2','h3','h4','h5','h6'].reduce(function(a, k) { return a + (h[k] || []).length; }, 0);
+    document.getElementById('stat-headings').textContent   = totalH;
+    document.getElementById('stat-paragraphs').textContent = (d.paragraphs || []).length;
+    document.getElementById('stat-images').textContent     = (d.images || []).length;
+    document.getElementById('stat-chars').textContent      = (d.text_content || '').length.toLocaleString();
+
+    // Headings
+    var hCont = document.getElementById('headings-container');
+    hCont.innerHTML = '';
+    var levelColors = {
+      h1: 'text-indigo-700 dark:text-indigo-300 font-bold text-base',
+      h2: 'text-violet-700 dark:text-violet-300 font-semibold',
+      h3: 'text-sky-700 dark:text-sky-300 font-medium',
+      h4: 'text-emerald-700 dark:text-emerald-300',
+      h5: 'text-amber-700 dark:text-amber-300 text-xs',
+      h6: 'text-gray-600 dark:text-gray-400 text-xs',
+    };
+    var levelIndent = { h1: '', h2: 'ml-3', h3: 'ml-6', h4: 'ml-9', h5: 'ml-12', h6: 'ml-14' };
+    ['h1','h2','h3','h4','h5','h6'].forEach(function(tag) {
+      (h[tag] || []).forEach(function(text) {
+        var div = document.createElement('div');
+        div.className = levelIndent[tag] + ' flex items-start gap-1.5';
+        div.innerHTML = '<span class="text-xs font-mono text-gray-400 shrink-0 pt-0.5 w-7">' + esc(tag.toUpperCase()) + '</span>' +
+          '<span class="' + levelColors[tag] + '">' + esc(text) + '</span>';
+        hCont.appendChild(div);
+      });
+    });
+    if (!hCont.children.length) {
+      hCont.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-600 italic">No headings found.</p>';
+    }
+
+    // Paragraphs
+    var pCont = document.getElementById('paragraphs-container');
+    pCont.innerHTML = '';
+    (d.paragraphs || []).forEach(function(p, i) {
+      var div = document.createElement('div');
+      div.className = 'px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 leading-relaxed';
+      div.textContent = p;
+      pCont.appendChild(div);
+    });
+    if (!pCont.children.length) {
+      pCont.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-600 italic">No paragraphs extracted.</p>';
+    }
+
+    // Full text
+    document.getElementById('text-full').textContent = d.text_content || '';
+
+    // Images
+    var imgCont = document.getElementById('images-container');
+    imgCont.innerHTML = '';
+    (d.images || []).forEach(function(img) {
+      var card = document.createElement('div');
+      card.className = 'rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden bg-gray-50 dark:bg-gray-800 group';
+      var imgEl = document.createElement('img');
+      imgEl.src = img.src;
+      imgEl.alt = img.alt || '';
+      imgEl.loading = 'lazy';
+      imgEl.className = 'w-full h-full object-cover group-hover:scale-105 transition-transform';
+      imgEl.addEventListener('error', imgLoadError);
+      var imgWrap = document.createElement('div');
+      imgWrap.className = 'aspect-video overflow-hidden bg-gray-100 dark:bg-gray-700 flex items-center justify-center';
+      imgWrap.appendChild(imgEl);
+      var meta = document.createElement('div');
+      meta.className = 'p-2';
+      meta.innerHTML =
+        '<p class="text-xs text-gray-500 dark:text-gray-400 truncate" title="' + esc(img.alt) + '">' +
+          (img.alt ? esc(img.alt) : '<em class="italic text-gray-300">no alt text</em>') +
+        '</p>' +
+        (img.width && img.height ? '<p class="text-xs text-gray-400">' + img.width + '\xd7' + img.height + '</p>' : '');
+      card.appendChild(imgWrap);
+      card.appendChild(meta);
+      imgCont.appendChild(card);
+    });
+    if (!imgCont.children.length) {
+      imgCont.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-600 italic">No images found.</p>';
+    }
+    document.getElementById('images-section').classList.toggle('hidden', (d.images || []).length === 0);
+  }
+
+  function exportJSON() {
+    if (!_lastResult) return;
+    var blob = new Blob([JSON.stringify(_lastResult, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'extracted-content.json';
+    a.click();
+  }
+
+  // Allow pressing Enter in the URL input
+  document.getElementById('url-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') runExtract();
+  });
+</script>
+{% endblock %}

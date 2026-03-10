@@ -426,6 +426,10 @@ class FactCheckRequest(BaseModel):
     url: str
 
 
+class ExtractRequest(BaseModel):
+    url: str
+
+
 def _load_factcheck_cache() -> dict:
     if not os.path.exists(FACTCHECK_FILE):
         return {}
@@ -1202,3 +1206,118 @@ async def api_factcheck_text(
                 "correct_information": "",
             })
     return JSONResponse({"claims": results})
+
+
+# ---------------------------------------------------------------------------
+# Content Extractor – single-page full-content extraction
+# ---------------------------------------------------------------------------
+
+async def _extract_page_content(url: str) -> dict:
+    """Extract full content from a URL using Playwright.
+
+    Returns a dict with title, meta_description, headings (h1-h6),
+    paragraphs, images, and full text content.
+    """
+    from playwright.async_api import async_playwright  # noqa: PLC0415
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    result: dict = {
+        "url": url,
+        "title": "",
+        "meta_description": "",
+        "headings": {"h1": [], "h2": [], "h3": [], "h4": [], "h5": [], "h6": []},
+        "paragraphs": [],
+        "images": [],
+        "text_content": "",
+        "error": None,
+    }
+
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            try:
+                context = await browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1280, "height": 800},
+                    locale="en-US",
+                )
+                page = await context.new_page()
+                try:
+                    await page.goto(url, wait_until="networkidle", timeout=30000)
+                except Exception:
+                    # Fallback: domcontentloaded is faster and more permissive
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                result["title"] = (await page.title() or "").strip()
+
+                result["meta_description"] = (
+                    await page.evaluate(
+                        """() => {
+                            const m =
+                                document.querySelector('meta[name="description"]') ||
+                                document.querySelector('meta[name="Description"]') ||
+                                document.querySelector('meta[property="og:description"]');
+                            return m ? (m.getAttribute('content') || '') : '';
+                        }"""
+                    ) or ""
+                ).strip()
+
+                for level in range(1, 7):
+                    tag = f"h{level}"
+                    texts = await page.evaluate(
+                        f"() => Array.from(document.querySelectorAll('{tag}'))"
+                        ".map(e => e.innerText.trim()).filter(Boolean)"
+                    )
+                    result["headings"][tag] = texts
+
+                paragraphs = await page.evaluate(
+                    "() => Array.from(document.querySelectorAll('p'))"
+                    ".map(e => e.innerText.trim()).filter(Boolean)"
+                )
+                result["paragraphs"] = paragraphs[:100]
+
+                images = await page.evaluate(
+                    """() => Array.from(document.querySelectorAll('img')).map(e => ({
+                        src: e.src || e.getAttribute('src') || '',
+                        alt: e.alt || '',
+                        width: e.naturalWidth || e.width || 0,
+                        height: e.naturalHeight || e.height || 0
+                    })).filter(i => i.src && !i.src.startsWith('data:'))"""
+                )
+                result["images"] = images[:50]
+
+                text = await page.evaluate(
+                    "() => document.body"
+                    " ? document.body.innerText.replace(/\\s+/g, ' ').trim() : ''"
+                )
+                result["text_content"] = text[:10000]
+            finally:
+                await browser.close()
+    except Exception as exc:  # noqa: BLE001
+        _log.error("Content extraction failed for %s: %s", url, exc)
+        result["error"] = str(exc)
+
+    return result
+
+
+@app.get("/extract", response_class=HTMLResponse)
+async def extract_page(request: Request):
+    """Content Extractor – single-page full-content extraction UI."""
+    return templates.TemplateResponse("extract.html", {"request": request})
+
+
+@app.post("/extract-content")
+@limiter.limit("30/minute")
+async def extract_content(request: Request, body: ExtractRequest):
+    """Extract full content (text, headings, images) from any URL."""
+    url = body.url.strip()
+    if not url:
+        return JSONResponse({"error": "url is required"}, status_code=400)
+    data = await _extract_page_content(url)
+    return JSONResponse(data)
