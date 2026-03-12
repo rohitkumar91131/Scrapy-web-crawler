@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from google import genai
+from google.genai import errors as _genai_errors
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -394,6 +395,38 @@ def _save_qa_cache(cache: dict) -> None:
             json.dump(cache, fh, indent=2, ensure_ascii=False)
     except OSError:
         pass
+
+
+def _gemini_retry_seconds(exc: _genai_errors.APIError) -> int | None:
+    """Extract the suggested retry-after seconds from a Gemini rate-limit error, if present."""
+    import math
+    try:
+        details = exc.details
+        if isinstance(details, dict):
+            details_list = details.get("error", {}).get("details", [])
+        elif isinstance(details, list):
+            details_list = details
+        else:
+            return None
+        for item in details_list:
+            if isinstance(item, dict) and item.get("@type", "").endswith("RetryInfo"):
+                delay_str = item.get("retryDelay", "")
+                if delay_str:
+                    return math.ceil(float(delay_str.rstrip("s")))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _gemini_rate_limit_response(exc: _genai_errors.ClientError) -> JSONResponse:
+    """Build a user-friendly 429 JSONResponse for a Gemini quota-exceeded error."""
+    retry_secs = _gemini_retry_seconds(exc)
+    msg = "AI rate limit exceeded – your Gemini free-tier quota has been reached."
+    if retry_secs:
+        msg += f" Please wait {retry_secs} second(s) and try again."
+    else:
+        msg += " Please try again later."
+    return JSONResponse({"error": msg, "retry_after": retry_secs}, status_code=429)
 
 
 def _summarize_page(page: dict, api_key: str) -> str:
@@ -882,6 +915,13 @@ async def ask(body: AskRequest):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         result = json.loads(raw)
+    except _genai_errors.ClientError as exc:
+        if exc.code == 429:
+            return _gemini_rate_limit_response(exc)
+        return JSONResponse(
+            {"error": f"AI query failed: {exc.message or exc}"},
+            status_code=502,
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(
             {"error": f"AI query failed: {exc}"},
@@ -1658,6 +1698,13 @@ async def extract_chat(request: Request, body: ExtractChatRequest):
             contents=prompt,
         )
         return JSONResponse({"answer": response.text.strip()})
+    except _genai_errors.ClientError as exc:
+        if exc.code == 429:
+            return _gemini_rate_limit_response(exc)
+        return JSONResponse(
+            {"error": f"AI chat failed: {exc.message or exc}"},
+            status_code=502,
+        )
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(
             {"error": f"AI chat failed: {exc}"},
