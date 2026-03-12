@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from google import genai
 from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -56,6 +57,27 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 app.state.limiter = limiter
+
+# Allow cross-origin requests so external clients (and the developer API
+# playground) can call the public /api/v1/* endpoints without the browser
+# blocking them with a CORS error ("Failed to fetch").
+# CORS_ORIGINS env var accepts a comma-separated list of allowed origins,
+# e.g. "https://myapp.com,https://staging.myapp.com".  Defaults to "*"
+# (all origins) which is appropriate for a public developer API that serves
+# no authenticated session cookies.
+_cors_origins_env = os.environ.get("CORS_ORIGINS", "*")
+_cors_origins: list[str] = (
+    [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    if _cors_origins_env != "*"
+    else ["*"]
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
+    allow_credentials=False,
+)
 
 
 async def _json_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
