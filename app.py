@@ -1259,7 +1259,7 @@ async def api_extract_content(
 # Content Extractor – single-page full-content extraction
 # ---------------------------------------------------------------------------
 
-async def _extract_page_content(url: str, session_cookies: list | None = None) -> dict:
+async def _extract_page_content(url: str, session_cookies: list | None = None, status_callback=None) -> dict:
     """Extract full content from a URL using Playwright.
 
     Returns a dict with title, meta_description, headings (h1-h6),
@@ -1271,6 +1271,10 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
     access to login-protected pages.
     """
     from playwright.async_api import async_playwright  # noqa: PLC0415
+
+    def _status(msg: str) -> None:
+        if status_callback is not None:
+            status_callback(msg)
 
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
@@ -1306,6 +1310,7 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
 
     try:
         async with async_playwright() as pw:
+            _status("Launching browser…")
             browser = await pw.chromium.launch(headless=True)
             try:
                 context_kwargs: dict = {
@@ -1326,6 +1331,7 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
                     }
                 context = await browser.new_context(**context_kwargs)
                 page = await context.new_page()
+                _status(f"Navigating to {url}…")
                 try:
                     await page.goto(url, wait_until="networkidle", timeout=30000)
                 except Exception:
@@ -1336,11 +1342,13 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
                 # time for async content (conversation messages, dynamic data)
                 # to finish rendering after the initial network-idle state.
                 if _is_js_heavy:
+                    _status("Waiting for dynamic content to render…")
                     try:
                         await page.wait_for_load_state("networkidle", timeout=15000)
                     except Exception:
                         pass
 
+                _status("Extracting title and metadata…")
                 result["title"] = (await page.title() or "").strip()
 
                 result["meta_description"] = (
@@ -1355,6 +1363,7 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
                     ) or ""
                 ).strip()
 
+                _status("Extracting headings…")
                 for level in range(1, 7):
                     tag = f"h{level}"
                     texts = await page.evaluate(
@@ -1363,14 +1372,16 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
                     )
                     result["headings"][tag] = texts
 
+                _status("Extracting paragraphs…")
                 paragraphs = await page.evaluate(
                     "() => Array.from(document.querySelectorAll('p'))"
                     ".map(e => e.innerText.trim()).filter(Boolean)"
                 )
                 result["paragraphs"] = paragraphs[:100]
 
+                _status("Extracting images…")
                 images = await page.evaluate(
-                    """() => Array.from(document.querySelectorAll('img')).map(e => ({
+                    """() => Array.from(document.querySelectorAll('img')).map(e => ({'
                         src: e.src || e.getAttribute('src') || '',
                         alt: e.alt || '',
                         width: e.naturalWidth || e.width || 0,
@@ -1379,6 +1390,7 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
                 )
                 result["images"] = images[:50]
 
+                _status("Extracting full text content…")
                 text = await page.evaluate(
                     "() => document.body"
                     " ? document.body.innerText.replace(/\\s+/g, ' ').trim() : ''"
@@ -1407,6 +1419,117 @@ async def _extract_page_content(url: str, session_cookies: list | None = None) -
         result["error"] = str(exc)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Async extraction job tracker (used by /extract-start + /extract-status)
+# ---------------------------------------------------------------------------
+
+_extract_jobs: dict = {}   # job_id → {status, message, result, started_at}
+_extract_jobs_lock = threading.Lock()
+
+
+def _run_extract_job(job_id: str, url: str, account_index: int | None) -> None:
+    """Run extraction in a background thread, updating job status at each stage."""
+    import asyncio
+
+    def _update(message: str, status: str = "running") -> None:
+        with _extract_jobs_lock:
+            if job_id in _extract_jobs:
+                _extract_jobs[job_id]["message"] = message
+                _extract_jobs[job_id]["status"] = status
+
+    # Resolve session cookies from account_index when provided
+    session_cookies: list | None = None
+    if account_index is not None:
+        accounts = _load_accounts()
+        if 0 <= account_index < len(accounts):
+            acc = accounts[account_index]
+            session_path = acc.get("session_file", "")
+            if session_path and not os.path.isabs(session_path):
+                session_path = os.path.join(BASE_DIR, session_path)
+            if session_path and os.path.exists(session_path):
+                try:
+                    with open(session_path, "r", encoding="utf-8") as fh:
+                        sd = json.load(fh)
+                    session_cookies = sd.get("cookies") or []
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning("Could not load session cookies: %s", exc)
+
+    try:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(
+            _extract_page_content(url, session_cookies=session_cookies, status_callback=_update)
+        )
+        loop.close()
+        with _extract_jobs_lock:
+            if job_id in _extract_jobs:
+                _extract_jobs[job_id].update({
+                    "status": "complete",
+                    "message": "Extraction complete.",
+                    "result": result,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                })
+    except Exception as exc:  # noqa: BLE001
+        _log.error("Extract job %s failed: %s", job_id, exc)
+        with _extract_jobs_lock:
+            if job_id in _extract_jobs:
+                _extract_jobs[job_id].update({
+                    "status": "error",
+                    "message": str(exc),
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                })
+
+
+@app.post("/extract-start")
+@limiter.limit("30/minute")
+async def extract_start(request: Request, body: ExtractRequest):
+    """Start an async content extraction job.  Returns ``{job_id}`` immediately."""
+    url = body.url.strip()
+    if not url:
+        return JSONResponse({"error": "url is required"}, status_code=400)
+
+    # Evict completed/failed jobs older than 1 hour to prevent unbounded growth
+    now = datetime.now(timezone.utc)
+    with _extract_jobs_lock:
+        stale = [
+            jid for jid, job in _extract_jobs.items()
+            if job.get("status") in ("complete", "error") and job.get("finished_at")
+            and (now - datetime.fromisoformat(job["finished_at"])).total_seconds() > 3600
+        ]
+        for jid in stale:
+            del _extract_jobs[jid]
+
+    job_id = uuid.uuid4().hex[:12]
+    with _extract_jobs_lock:
+        _extract_jobs[job_id] = {
+            "status": "running",
+            "message": "Starting extraction…",
+            "result": None,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+        }
+
+    threading.Thread(
+        target=_run_extract_job,
+        args=(job_id, url, body.account_index),
+        daemon=True,
+    ).start()
+    return JSONResponse({"job_id": job_id}, status_code=202)
+
+
+@app.get("/extract-status/{job_id}")
+async def extract_job_status(job_id: str):
+    """Return the current status of an extraction job (polled every 2 s by the UI)."""
+    with _extract_jobs_lock:
+        job = _extract_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JSONResponse({
+        "status": job["status"],
+        "message": job["message"],
+        "result": job.get("result") if job["status"] in ("complete",) else None,
+    })
 
 
 @app.get("/extract", response_class=HTMLResponse)

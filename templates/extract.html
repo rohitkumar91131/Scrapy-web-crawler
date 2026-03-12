@@ -55,7 +55,7 @@
   <!-- Loading -->
   <div id="loading-banner" class="hidden mb-5 flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 px-4 py-3 rounded-xl text-sm">
     <div class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0"></div>
-    <span><strong>Fetching &amp; extracting page content…</strong> This may take a few seconds for JS-heavy sites.</span>
+    <span id="loading-status"><strong>Starting extraction…</strong></span>
   </div>
 
   <!-- Error -->
@@ -193,6 +193,14 @@
 {% block scripts %}
 <script>
   var _lastResult = null;
+  var _activePollTimer = null;  // module-level handle so runExtract() can cancel any prior poll
+
+  function _stopActivePoll() {
+    if (_activePollTimer) { clearInterval(_activePollTimer); _activePollTimer = null; }
+  }
+
+  // Cancel polling when the user navigates away
+  window.addEventListener('beforeunload', _stopActivePoll);
 
   function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -223,45 +231,91 @@
 
     var btn      = document.getElementById('extract-btn');
     var loading  = document.getElementById('loading-banner');
+    var statusEl = document.getElementById('loading-status');
     var errorBan = document.getElementById('error-banner');
     var results  = document.getElementById('results-section');
 
+    // Cancel any previous poll before starting a new extraction
+    _stopActivePoll();
+
     btn.disabled = true;
+    statusEl.innerHTML = '<strong>Starting extraction…</strong>';
     show(loading);
     hide(errorBan);
     hide(results);
 
     try {
+      // Step 1: Start the async extraction job
       var payload = { url: url };
       if (accountIndex !== null) payload.account_index = accountIndex;
-      var resp = await fetch('/extract-content', {
+      var startResp = await fetch('/extract-start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      var _text = await resp.text();
-      var data;
-      try { data = JSON.parse(_text); } catch (e) { data = {error: 'Server returned an invalid response.'}; }
+      var startText = await startResp.text();
+      var startData;
+      try { startData = JSON.parse(startText); } catch (e) { startData = { error: 'Server returned an invalid response.' }; }
 
-      if (!resp.ok) {
-        document.getElementById('error-text').textContent = '⚠️ ' + (data.error || 'Unknown error');
+      if (!startResp.ok) {
+        document.getElementById('error-text').textContent = '⚠️ ' + (startData.error || 'Unknown error');
         show(errorBan);
+        hide(loading);
+        btn.disabled = false;
         return;
       }
 
-      _lastResult = data;
-      // Show login-required error as a warning banner but still render what was extracted
-      if (data.error) {
-        document.getElementById('error-text').textContent = '🔒 ' + data.error;
-        show(errorBan);
-      }
-      renderResults(data);
-      show(results);
-      lucide.createIcons();
+      var jobId = startData.job_id;
+
+      // Step 2: Poll /extract-status/{job_id} every 2 seconds
+      _activePollTimer = setInterval(async function() {
+        try {
+          var pollResp = await fetch('/extract-status/' + jobId);
+          var pollData;
+          try { pollData = await pollResp.json(); } catch (e) { return; }
+
+          if (!pollResp.ok) {
+            _stopActivePoll();
+            document.getElementById('error-text').textContent = '⚠️ ' + (pollData.detail || 'Unknown error');
+            show(errorBan);
+            hide(loading);
+            btn.disabled = false;
+            return;
+          }
+
+          // Update the status message
+          statusEl.innerHTML = '<strong>' + esc(pollData.message || 'Working…') + '</strong>';
+
+          if (pollData.status === 'complete') {
+            _stopActivePoll();
+            hide(loading);
+            var data = pollData.result;
+            _lastResult = data;
+            if (data.error) {
+              document.getElementById('error-text').textContent = '🔒 ' + data.error;
+              show(errorBan);
+            }
+            renderResults(data);
+            show(results);
+            lucide.createIcons();
+            btn.disabled = false;
+
+          } else if (pollData.status === 'error') {
+            _stopActivePoll();
+            hide(loading);
+            document.getElementById('error-text').textContent = '⚠️ ' + (pollData.message || 'Extraction failed.');
+            show(errorBan);
+            btn.disabled = false;
+          }
+        } catch (err) {
+          // Network hiccup — keep polling
+        }
+      }, 2000);
+
     } catch (err) {
+      _stopActivePoll();
       document.getElementById('error-text').textContent = '⚠️ Request failed: ' + err.message;
       show(errorBan);
-    } finally {
       hide(loading);
       btn.disabled = false;
     }
