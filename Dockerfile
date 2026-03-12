@@ -42,5 +42,7 @@ COPY . .
 # Expose the application port
 EXPOSE 10000
 
-# Start the application with uvicorn
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10000"]
+# Start the application with a single uvicorn worker.
+# One worker is essential on Render's 512 MB free tier – multiple workers would
+# each load the full app + Playwright into memory and cause OOM kills.
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1", "--timeout-keep-alive", "30"]
