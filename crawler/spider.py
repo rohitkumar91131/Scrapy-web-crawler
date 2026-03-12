@@ -38,20 +38,21 @@ class WebCrawlerSpider(scrapy.Spider):
     custom_settings = {
         # Keep crawl depth and page count small to stay within 512 MB RAM on Render
         "DEPTH_LIMIT": 2,
-        "CLOSESPIDER_PAGECOUNT": 30,
+        "CLOSESPIDER_PAGECOUNT": 20,
         "ROBOTSTXT_OBEY": True,
-        "DOWNLOAD_DELAY": 1,
+        # Slightly longer delay reduces the number of requests in-flight at once
+        "DOWNLOAD_DELAY": 2,
         # Limit parallel requests so the browser doesn't spawn too many tabs at once
-        "CONCURRENT_REQUESTS": 4,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
+        "CONCURRENT_REQUESTS": 2,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
         "LOG_LEVEL": "WARNING",
         "HTTPERROR_ALLOW_ALL": True,
-        # Scrapy memory watchdog – gracefully closes the spider before OOM kill
+        # Scrapy memory watchdog – gracefully closes the spider before OOM kill.
         # On Render's 512 MB free tier the OS + uvicorn use ~100-150 MB, so
-        # limiting the spider subprocess to 350 MB leaves enough headroom.
+        # limiting the spider subprocess to 280 MB leaves enough headroom.
         "MEMUSAGE_ENABLED": True,
-        "MEMUSAGE_LIMIT_MB": 350,
-        "MEMUSAGE_WARNING_MB": 250,
+        "MEMUSAGE_LIMIT_MB": 280,
+        "MEMUSAGE_WARNING_MB": 200,
         # Realistic browser headers to reduce bot-detection fingerprinting
         "DEFAULT_REQUEST_HEADERS": {
             "User-Agent": (
@@ -68,12 +69,15 @@ class WebCrawlerSpider(scrapy.Spider):
         },
         "TWISTED_REACTOR": "twisted.internet.asyncioreactor.AsyncioSelectorReactor",
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
+        # Cap open browser tabs to 1 per context – the single largest lever for
+        # reducing Chromium memory usage on the 512 MB Render free tier.
+        "PLAYWRIGHT_MAX_PAGES_PER_CONTEXT": 1,
         "PLAYWRIGHT_LAUNCH_OPTIONS": {
             "headless": True,
             # Flags required to run Chromium in a low-memory container environment
             # (Render free tier: 512 MB RAM, tiny /dev/shm)
             "args": [
-                "--disable-dev-shm-usage",   # use /tmp instead of /dev/shm
+                "--disable-dev-shm-usage",       # use /tmp instead of /dev/shm
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-gpu",
@@ -83,12 +87,19 @@ class WebCrawlerSpider(scrapy.Spider):
                 "--disable-sync",
                 "--no-first-run",
                 "--mute-audio",
+                # Limit renderer processes to reduce per-process overhead
+                "--renderer-process-limit=2",
+                # Cap V8 JS heap to 128 MB per renderer process
+                "--js-flags=--max-old-space-size=128",
+                # Disable features that consume background memory
+                "--disable-renderer-accessibility",
+                "--disable-features=TranslateUI,BlinkGenPropertyTrees",
             ],
         },
         # Smaller viewport reduces per-tab GPU/memory footprint
         "PLAYWRIGHT_CONTEXTS": {
             "default": {
-                "viewport": {"width": 1024, "height": 600},
+                "viewport": {"width": 800, "height": 600},
                 "locale": "en-US",
             },
         },
