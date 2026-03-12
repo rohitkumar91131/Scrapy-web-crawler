@@ -36,12 +36,22 @@ class WebCrawlerSpider(scrapy.Spider):
     name = "web_crawler"
 
     custom_settings = {
-        "DEPTH_LIMIT": 3,
-        "CLOSESPIDER_PAGECOUNT": 100,
+        # Keep crawl depth and page count small to stay within 512 MB RAM on Render
+        "DEPTH_LIMIT": 2,
+        "CLOSESPIDER_PAGECOUNT": 30,
         "ROBOTSTXT_OBEY": True,
-        "DOWNLOAD_DELAY": 0.5,
+        "DOWNLOAD_DELAY": 1,
+        # Limit parallel requests so the browser doesn't spawn too many tabs at once
+        "CONCURRENT_REQUESTS": 4,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
         "LOG_LEVEL": "WARNING",
         "HTTPERROR_ALLOW_ALL": True,
+        # Scrapy memory watchdog – gracefully closes the spider before OOM kill
+        # On Render's 512 MB free tier the OS + uvicorn use ~100-150 MB, so
+        # limiting the spider subprocess to 350 MB leaves enough headroom.
+        "MEMUSAGE_ENABLED": True,
+        "MEMUSAGE_LIMIT_MB": 350,
+        "MEMUSAGE_WARNING_MB": 250,
         # Realistic browser headers to reduce bot-detection fingerprinting
         "DEFAULT_REQUEST_HEADERS": {
             "User-Agent": (
@@ -58,11 +68,27 @@ class WebCrawlerSpider(scrapy.Spider):
         },
         "TWISTED_REACTOR": "twisted.internet.asyncioreactor.AsyncioSelectorReactor",
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
-        "PLAYWRIGHT_LAUNCH_OPTIONS": {"headless": True},
-        # Realistic viewport for the default Playwright browser context
+        "PLAYWRIGHT_LAUNCH_OPTIONS": {
+            "headless": True,
+            # Flags required to run Chromium in a low-memory container environment
+            # (Render free tier: 512 MB RAM, tiny /dev/shm)
+            "args": [
+                "--disable-dev-shm-usage",   # use /tmp instead of /dev/shm
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--no-first-run",
+                "--mute-audio",
+            ],
+        },
+        # Smaller viewport reduces per-tab GPU/memory footprint
         "PLAYWRIGHT_CONTEXTS": {
             "default": {
-                "viewport": {"width": 1280, "height": 800},
+                "viewport": {"width": 1024, "height": 600},
                 "locale": "en-US",
             },
         },
@@ -121,7 +147,7 @@ class WebCrawlerSpider(scrapy.Spider):
                                 "cookies": self._session_cookies,
                                 "origins": [],
                             },
-                            "viewport": {"width": 1280, "height": 800},
+                            "viewport": {"width": 1024, "height": 600},
                             "locale": "en-US",
                         },
                         "playwright_page_methods": self._PLAYWRIGHT_METHODS,
