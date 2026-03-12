@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from google import genai
 from fastapi import FastAPI, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -434,6 +434,23 @@ class FactCheckRequest(BaseModel):
 class ExtractRequest(BaseModel):
     url: str
     account_index: int | None = None
+
+
+class ExtractChatRequest(BaseModel):
+    question: str
+    page_title: str = ""
+    page_url: str = ""
+    text_content: str = ""
+
+
+class GeneratePDFRequest(BaseModel):
+    title: str = ""
+    url: str = ""
+    meta_description: str = ""
+    headings: dict = {}
+    paragraphs: list = []
+    images: list = []
+    text_content: str = ""
 
 
 def _load_factcheck_cache() -> dict:
@@ -1434,3 +1451,255 @@ async def extract_content(request: Request, body: ExtractRequest):
 
     data = await _extract_page_content(url, session_cookies=session_cookies)
     return JSONResponse(data)
+
+
+@app.post("/extract-chat")
+@limiter.limit("30/minute")
+async def extract_chat(request: Request, body: ExtractChatRequest):
+    """Chat with Gemini AI about the content extracted from a page."""
+    question = body.question.strip()
+    if not question:
+        return JSONResponse({"error": "Question cannot be empty."}, status_code=400)
+
+    api_key = os.environ.get("GOOGLE_AI_STUDIO_API_KEY", "")
+    if not api_key:
+        return JSONResponse(
+            {"error": "GOOGLE_AI_STUDIO_API_KEY environment variable is not set."},
+            status_code=500,
+        )
+
+    context = body.text_content[:8000]
+    prompt = (
+        "You are an AI assistant helping to analyze a web page.\n"
+        f"Page title: {body.page_title}\n"
+        f"Page URL: {body.page_url}\n\n"
+        f"Page content:\n{context}\n\n"
+        f"User question: {question}\n\n"
+        "Answer the user's question based on the page content above. "
+        "Be concise, accurate, and helpful."
+    )
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+        )
+        return JSONResponse({"answer": response.text.strip()})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"error": f"AI chat failed: {exc}"},
+            status_code=500,
+        )
+
+
+# ---------------------------------------------------------------------------
+# PDF generation – server-side using Playwright
+# ---------------------------------------------------------------------------
+
+def _build_pdf_html(body: "GeneratePDFRequest") -> str:  # noqa: F821
+    """Build a styled HTML document from extracted page data for PDF rendering."""
+    import html as _html
+
+    def esc(s: object) -> str:
+        return _html.escape(str(s or ""))
+
+    headings = body.headings or {}
+
+    # ── Headings section ──────────────────────────────────────────────────
+    headings_rows = []
+    for level in range(1, 7):
+        tag = f"h{level}"
+        for text in headings.get(tag, []):
+            headings_rows.append(
+                f'<{tag}><span class="htag">{tag.upper()}</span>{esc(text)}</{tag}>'
+            )
+    headings_html = (
+        "\n".join(headings_rows)
+        if headings_rows
+        else '<p class="empty">No headings found.</p>'
+    )
+
+    # ── Paragraphs section ────────────────────────────────────────────────
+    paragraphs = body.paragraphs or []
+    paragraphs_html = (
+        "\n".join(
+            f'<div class="para">{esc(p)}</div>' for p in paragraphs[:60]
+        )
+        if paragraphs
+        else '<p class="empty">No paragraphs extracted.</p>'
+    )
+
+    # ── Images section ────────────────────────────────────────────────────
+    images = body.images or []
+    images_html = ""
+    if images:
+        cards = []
+        for img in images[:18]:
+            src = esc(img.get("src", ""))
+            alt = esc(img.get("alt", ""))
+            w, h = img.get("width", 0), img.get("height", 0)
+            dim = f"{w}×{h}" if w and h else ""
+            cards.append(
+                f'<div class="img-card">'
+                f'<img src="{src}" alt="{alt}" '
+                f'onerror="this.closest(\'.img-card\').style.display=\'none\'">'
+                f'<div class="img-alt">{alt or "<em>no alt</em>"}'
+                f'{(" &nbsp;·&nbsp; " + dim) if dim else ""}</div>'
+                f"</div>"
+            )
+        images_html = (
+            '<div class="section-title">Images</div>'
+            '<div class="img-grid">' + "\n".join(cards) + "</div>"
+        )
+
+    # ── Stats bar ─────────────────────────────────────────────────────────
+    total_h = sum(len(v) for v in headings.values())
+    chars = len(body.text_content or "")
+
+    # ── Description ───────────────────────────────────────────────────────
+    desc_html = (
+        f'<div class="desc">{esc(body.meta_description)}</div>'
+        if body.meta_description
+        else ""
+    )
+
+    from datetime import datetime as _dt
+    generated_at = _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #18181b; background: #fff; font-size: 13px; }}
+
+  /* ── Header ── */
+  .hdr {{ background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: #fff; padding: 26px 36px 22px; }}
+  .hdr-app {{ font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 3px; }}
+  .hdr-tag {{ font-size: 10px; text-transform: uppercase; letter-spacing: 1.8px; opacity: 0.75; }}
+
+  /* ── Content wrapper ── */
+  .body {{ padding: 26px 36px; }}
+
+  /* ── Page meta ── */
+  .pg-title {{ font-size: 20px; font-weight: 700; color: #1e1b4b; line-height: 1.3; margin-bottom: 5px; }}
+  .pg-url   {{ font-size: 11px; color: #6366f1; word-break: break-all; margin-bottom: 6px; }}
+  .desc     {{ font-size: 12px; color: #52525b; line-height: 1.65; margin-bottom: 14px; }}
+
+  /* ── Stats ── */
+  .stats {{ display: flex; gap: 10px; margin: 14px 0 20px; }}
+  .stat  {{ flex: 1; background: #f5f3ff; border: 1px solid #ede9fe; border-radius: 10px; padding: 12px 8px; text-align: center; }}
+  .stat-n {{ font-size: 22px; font-weight: 800; color: #4f46e5; line-height: 1; }}
+  .stat-l {{ font-size: 9px; text-transform: uppercase; color: #6b7280; letter-spacing: 0.5px; margin-top: 4px; }}
+
+  /* ── Section title ── */
+  .section-title {{
+    font-size: 11px; font-weight: 700; color: #4f46e5;
+    text-transform: uppercase; letter-spacing: 0.9px;
+    margin: 22px 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }}
+  .section-title::before {{
+    content: ''; display: inline-block;
+    width: 4px; height: 13px;
+    background: #4f46e5; border-radius: 2px; flex-shrink: 0;
+  }}
+  hr {{ border: none; border-top: 2px solid #f0f0f8; margin: 20px 0; }}
+
+  /* ── Headings ── */
+  .htag {{ display: inline-block; font-size: 8px; font-family: monospace; color: #a1a1aa; background: #f4f4f5; border-radius: 3px; padding: 1px 4px; margin-right: 6px; vertical-align: middle; font-weight: 400; }}
+  h1 {{ font-size: 16px; color: #1e1b4b; font-weight: 700; margin: 9px 0 3px; border-left: 4px solid #4f46e5; padding-left: 10px; }}
+  h2 {{ font-size: 14px; color: #3730a3; font-weight: 600; margin: 7px 0 3px; border-left: 3px solid #7c3aed; padding-left: 16px; }}
+  h3 {{ font-size: 13px; color: #4338ca; font-weight: 600; margin: 6px 0 3px; padding-left: 28px; }}
+  h4 {{ font-size: 12px; color: #4f46e5; font-weight: 500; margin: 5px 0 3px; padding-left: 40px; }}
+  h5 {{ font-size: 11px; color: #6366f1; font-weight: 500; margin: 4px 0; padding-left: 52px; }}
+  h6 {{ font-size: 10px; color: #818cf8; margin: 4px 0; padding-left: 64px; }}
+
+  /* ── Paragraphs ── */
+  .para {{ font-size: 12px; color: #374151; line-height: 1.7; margin-bottom: 6px; padding: 7px 11px; background: #f9fafb; border-radius: 6px; border-left: 3px solid #e5e7eb; }}
+  .empty {{ font-size: 12px; color: #9ca3af; font-style: italic; }}
+
+  /* ── Images ── */
+  .img-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }}
+  .img-card {{ border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #f9fafb; page-break-inside: avoid; }}
+  .img-card img {{ width: 100%; height: 110px; object-fit: cover; display: block; }}
+  .img-alt {{ font-size: 9.5px; color: #6b7280; padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+
+  /* ── Footer ── */
+  .footer {{ margin-top: 32px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 9.5px; color: #a1a1aa; text-align: center; }}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-app">🕷 Scrapy Crawler</div>
+  <div class="hdr-tag">AI-Powered Web Extraction Report</div>
+</div>
+
+<div class="body">
+
+  <div class="pg-title">{esc(body.title) or "(No Title)"}</div>
+  <div class="pg-url">🔗 {esc(body.url)}</div>
+  {desc_html}
+
+  <div class="stats">
+    <div class="stat"><div class="stat-n">{total_h}</div><div class="stat-l">Headings</div></div>
+    <div class="stat"><div class="stat-n">{len(paragraphs)}</div><div class="stat-l">Paragraphs</div></div>
+    <div class="stat"><div class="stat-n">{len(images)}</div><div class="stat-l">Images</div></div>
+    <div class="stat"><div class="stat-n">{chars:,}</div><div class="stat-l">Characters</div></div>
+  </div>
+
+  <hr>
+  <div class="section-title">Headings</div>
+  {headings_html}
+
+  <hr>
+  <div class="section-title">Text Content</div>
+  {paragraphs_html}
+
+  {images_html}
+
+  <div class="footer">
+    Generated by Scrapy Crawler &nbsp;·&nbsp; {esc(body.url)} &nbsp;·&nbsp; {generated_at}
+  </div>
+</div>
+
+</body>
+</html>"""
+
+
+@app.post("/generate-pdf")
+@limiter.limit("10/minute")
+async def generate_pdf(request: Request, body: GeneratePDFRequest):
+    """Generate a formatted PDF from extracted page content using Playwright."""
+    from playwright.async_api import async_playwright  # noqa: PLC0415
+
+    html_content = _build_pdf_html(body)
+
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            try:
+                context = await browser.new_context(viewport={"width": 1200, "height": 900})
+                page = await context.new_page()
+                await page.set_content(html_content, wait_until="networkidle", timeout=30000)
+                pdf_bytes = await page.pdf(
+                    format="A4",
+                    print_background=True,
+                    margin={"top": "0mm", "right": "0mm", "bottom": "0mm", "left": "0mm"},
+                )
+            finally:
+                await browser.close()
+    except Exception as exc:  # noqa: BLE001
+        _log.error("PDF generation failed: %s", exc)
+        return JSONResponse({"error": f"PDF generation failed: {exc}"}, status_code=500)
+
+    safe_title = re.sub(r"[^\w\-]", "_", body.title or "extracted")[:50]
+    filename = f"{safe_title}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
