@@ -408,7 +408,7 @@ def _summarize_page(page: dict, api_key: str) -> str:
         "Return only the summary text, no additional formatting."
     )
     response = client.models.generate_content(
-        model="gemini-1.5-flash",
+        model="gemini-2.0-flash",
         contents=prompt,
     )
     return response.text.strip()
@@ -524,7 +524,7 @@ def _factcheck_claim(claim: str, api_key: str) -> dict:
         "}"
     )
     response = client.models.generate_content(
-        model="gemini-1.5-flash",
+        model="gemini-2.0-flash",
         contents=prompt,
     )
     raw = response.text.strip()
@@ -875,7 +875,7 @@ async def ask(body: AskRequest):
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=prompt,
         )
         raw = response.text.strip()
@@ -1654,7 +1654,7 @@ async def extract_chat(request: Request, body: ExtractChatRequest):
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=prompt,
         )
         return JSONResponse({"answer": response.text.strip()})
