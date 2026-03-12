@@ -1403,7 +1403,7 @@ async def _extract_page_content(url: str, session_cookies: list | None = None, s
 
                 _status("Extracting images…")
                 images = await page.evaluate(
-                    """() => Array.from(document.querySelectorAll('img')).map(e => ({'
+                    """() => Array.from(document.querySelectorAll('img')).map(e => ({
                         src: e.src || e.getAttribute('src') || '',
                         alt: e.alt || '',
                         width: e.naturalWidth || e.width || 0,
