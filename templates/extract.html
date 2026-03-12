@@ -498,10 +498,18 @@
       '</span>');
   }
 
+  var _chatRetryBlockedUntil = 0;
+
   async function sendExtractChat() {
     if (!_lastResult) return;
     var input = document.getElementById('extract-chat-input');
     var btn = document.getElementById('extract-chat-btn');
+    var now = Date.now();
+    if (now < _chatRetryBlockedUntil) {
+      var secsLeft = Math.ceil((_chatRetryBlockedUntil - now) / 1000);
+      addChatMsg('ai', '⚠️ AI rate limit active. Please wait ' + secsLeft + ' second(s) before sending another message.');
+      return;
+    }
     var q = input.value.trim();
     if (!q) return;
     addChatMsg('user', chatEsc(q));
@@ -524,6 +532,9 @@
       try { data = JSON.parse(_text); } catch (e) { data = { error: 'Server returned an invalid response.' }; }
       thinking.remove();
       if (!resp.ok || data.error) {
+        if (resp.status === 429 && data.retry_after) {
+          _chatRetryBlockedUntil = Date.now() + data.retry_after * 1000;
+        }
         addChatMsg('ai', '⚠️ ' + chatEsc(data.error || 'Unknown error'));
         return;
       }

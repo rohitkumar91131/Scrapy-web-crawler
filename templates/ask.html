@@ -101,9 +101,17 @@
     srcPane.classList.remove('hidden');
   }
 
+  var _askRetryBlockedUntil = 0;
+
   async function sendQuestion() {
     var q = qInput.value.trim();
     if (!q) return;
+    var now = Date.now();
+    if (now < _askRetryBlockedUntil) {
+      var secsLeft = Math.ceil((_askRetryBlockedUntil - now) / 1000);
+      addMsg('ai', '⚠️ AI rate limit active. Please wait ' + secsLeft + ' second(s) before sending another message.');
+      return;
+    }
     addMsg('user', esc(q));
     qInput.value = '';
     sendBtn.disabled = true;
@@ -116,6 +124,9 @@
       thinking.remove();
       if (!resp.ok || data.error) {
         if (resp.status === 404) document.getElementById('no-index-banner').style.display = 'flex';
+        if (resp.status === 429 && data.retry_after) {
+          _askRetryBlockedUntil = Date.now() + data.retry_after * 1000;
+        }
         addMsg('ai', '⚠️ ' + esc(data.error || 'Unknown error'));
         return;
       }
