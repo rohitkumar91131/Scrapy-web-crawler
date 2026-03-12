@@ -1370,54 +1370,81 @@ async def _extract_page_content(url: str, session_cookies: list | None = None, s
                     except Exception:
                         pass
 
-                _status("Extracting title and metadata…")
-                result["title"] = (await page.title() or "").strip()
+                # Wait for network activity to settle before running evaluate
+                # calls.  Pages that trigger client-side redirects or SPA
+                # route changes after goto() completes can otherwise destroy
+                # the execution context mid-evaluate.
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass
 
-                result["meta_description"] = (
-                    await page.evaluate(
-                        """() => {
-                            const m =
-                                document.querySelector('meta[name="description"]') ||
-                                document.querySelector('meta[name="Description"]') ||
-                                document.querySelector('meta[property="og:description"]');
-                            return m ? (m.getAttribute('content') || '') : '';
-                        }"""
-                    ) or ""
-                ).strip()
+                _status("Extracting title and metadata…")
+                try:
+                    result["title"] = (await page.title() or "").strip()
+                except Exception as exc:
+                    _log.debug("title() failed for %s: %s", url, exc)
+
+                try:
+                    result["meta_description"] = (
+                        await page.evaluate(
+                            """() => {
+                                const m =
+                                    document.querySelector('meta[name="description"]') ||
+                                    document.querySelector('meta[name="Description"]') ||
+                                    document.querySelector('meta[property="og:description"]');
+                                return m ? (m.getAttribute('content') || '') : '';
+                            }"""
+                        ) or ""
+                    ).strip()
+                except Exception as exc:
+                    _log.debug("meta_description evaluate failed for %s: %s", url, exc)
 
                 _status("Extracting headings…")
                 for level in range(1, 7):
                     tag = f"h{level}"
-                    texts = await page.evaluate(
-                        f"() => Array.from(document.querySelectorAll('{tag}'))"
-                        ".map(e => e.innerText.trim()).filter(Boolean)"
-                    )
-                    result["headings"][tag] = texts
+                    try:
+                        texts = await page.evaluate(
+                            f"() => Array.from(document.querySelectorAll('{tag}'))"
+                            ".map(e => e.innerText.trim()).filter(Boolean)"
+                        )
+                        result["headings"][tag] = texts
+                    except Exception as exc:
+                        _log.debug("headings[%s] evaluate failed for %s: %s", tag, url, exc)
 
                 _status("Extracting paragraphs…")
-                paragraphs = await page.evaluate(
-                    "() => Array.from(document.querySelectorAll('p'))"
-                    ".map(e => e.innerText.trim()).filter(Boolean)"
-                )
-                result["paragraphs"] = paragraphs[:100]
+                try:
+                    paragraphs = await page.evaluate(
+                        "() => Array.from(document.querySelectorAll('p'))"
+                        ".map(e => e.innerText.trim()).filter(Boolean)"
+                    )
+                    result["paragraphs"] = paragraphs[:100]
+                except Exception as exc:
+                    _log.debug("paragraphs evaluate failed for %s: %s", url, exc)
 
                 _status("Extracting images…")
-                images = await page.evaluate(
-                    """() => Array.from(document.querySelectorAll('img')).map(e => ({
-                        src: e.src || e.getAttribute('src') || '',
-                        alt: e.alt || '',
-                        width: e.naturalWidth || e.width || 0,
-                        height: e.naturalHeight || e.height || 0
-                    })).filter(i => i.src && !i.src.startsWith('data:'))"""
-                )
-                result["images"] = images[:50]
+                try:
+                    images = await page.evaluate(
+                        """() => Array.from(document.querySelectorAll('img')).map(e => ({
+                            src: e.src || e.getAttribute('src') || '',
+                            alt: e.alt || '',
+                            width: e.naturalWidth || e.width || 0,
+                            height: e.naturalHeight || e.height || 0
+                        })).filter(i => i.src && !i.src.startsWith('data:'))"""
+                    )
+                    result["images"] = images[:50]
+                except Exception as exc:
+                    _log.debug("images evaluate failed for %s: %s", url, exc)
 
                 _status("Extracting full text content…")
-                text = await page.evaluate(
-                    "() => document.body"
-                    " ? document.body.innerText.replace(/\\s+/g, ' ').trim() : ''"
-                )
-                result["text_content"] = text[:10000]
+                try:
+                    text = await page.evaluate(
+                        "() => document.body"
+                        " ? document.body.innerText.replace(/\\s+/g, ' ').trim() : ''"
+                    )
+                    result["text_content"] = text[:10000]
+                except Exception as exc:
+                    _log.debug("text_content evaluate failed for %s: %s", url, exc)
 
                 # Always check for login / authentication walls in the rendered
                 # text — even when session cookies were provided, so that
