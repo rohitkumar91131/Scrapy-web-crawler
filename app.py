@@ -9,6 +9,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+from xml.sax.saxutils import escape as xml_escape
 
 from google import genai
 from fastapi import FastAPI, Form, Request, HTTPException
@@ -708,6 +709,35 @@ async def site_graph():
 async def site_map(request: Request):
     """Interactive site structure visualization page."""
     return templates.TemplateResponse("sitemap.html", {"request": request})
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    """Generate a valid XML sitemap from crawled pages following the official sitemap protocol.
+
+    Spec: https://www.sitemaps.org/protocol.html
+    """
+    pages = _load_results()
+    lines: list[str] = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for page in pages:
+        loc = page.get("page_url", "").strip()
+        if not loc:
+            continue
+        # Escape XML special characters in the URL
+        loc = xml_escape(loc)
+        entry = ["  <url>", f"    <loc>{loc}</loc>"]
+        lastmod = page.get("crawl_timestamp", "")
+        if lastmod and len(lastmod) >= 10:
+            # Use only the date portion (YYYY-MM-DD) as required by the spec
+            entry.append(f"    <lastmod>{lastmod[:10]}</lastmod>")
+        entry.append("  </url>")
+        lines.extend(entry)
+    lines.append("</urlset>")
+    xml_content = "\n".join(lines)
+    return Response(content=xml_content, media_type="application/xml")
 
 
 # ---------------------------------------------------------------------------
