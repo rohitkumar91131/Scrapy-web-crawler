@@ -436,6 +436,13 @@ class ExtractRequest(BaseModel):
     account_index: int | None = None
 
 
+class ExtractChatRequest(BaseModel):
+    question: str
+    page_title: str = ""
+    page_url: str = ""
+    text_content: str = ""
+
+
 def _load_factcheck_cache() -> dict:
     if not os.path.exists(FACTCHECK_FILE):
         return {}
@@ -1434,3 +1441,43 @@ async def extract_content(request: Request, body: ExtractRequest):
 
     data = await _extract_page_content(url, session_cookies=session_cookies)
     return JSONResponse(data)
+
+
+@app.post("/extract-chat")
+@limiter.limit("30/minute")
+async def extract_chat(request: Request, body: ExtractChatRequest):
+    """Chat with Gemini AI about the content extracted from a page."""
+    question = body.question.strip()
+    if not question:
+        return JSONResponse({"error": "Question cannot be empty."}, status_code=400)
+
+    api_key = os.environ.get("GOOGLE_AI_STUDIO_API_KEY", "")
+    if not api_key:
+        return JSONResponse(
+            {"error": "GOOGLE_AI_STUDIO_API_KEY environment variable is not set."},
+            status_code=500,
+        )
+
+    context = body.text_content[:8000]
+    prompt = (
+        "You are an AI assistant helping to analyze a web page.\n"
+        f"Page title: {body.page_title}\n"
+        f"Page URL: {body.page_url}\n\n"
+        f"Page content:\n{context}\n\n"
+        f"User question: {question}\n\n"
+        "Answer the user's question based on the page content above. "
+        "Be concise, accurate, and helpful."
+    )
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+        )
+        return JSONResponse({"answer": response.text.strip()})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"error": f"AI chat failed: {exc}"},
+            status_code=500,
+        )

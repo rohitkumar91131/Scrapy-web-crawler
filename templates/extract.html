@@ -1,6 +1,35 @@
 {% extends "_base.html" %}
 {% block title %}Content Extractor – Scrapy Crawler{% endblock %}
 
+{% block head %}
+<style>
+@media print {
+  /* Hide everything that is not the extracted results */
+  header, aside, #sidebar, #sidebar-overlay,
+  .no-print, #url-input, #session-select, #extract-btn,
+  #loading-banner, #error-banner, #extract-chat-messages,
+  #extract-chat-input, #extract-chat-btn,
+  .flex.justify-end { display: none !important; }
+
+  body { background: #fff !important; color: #111 !important; font-family: sans-serif; }
+  #main-content { margin-left: 0 !important; }
+
+  /* Keep card borders visible on paper */
+  .rounded-2xl { border-radius: 8px; border: 1px solid #ddd; margin-bottom: 16px; }
+
+  /* Ensure images do not bleed off the page */
+  img { max-width: 100%; page-break-inside: avoid; }
+
+  /* Show full text instead of clipping at max-height */
+  #paragraphs-container, #text-full { max-height: none !important; overflow: visible !important; }
+  #text-full.hidden { display: block !important; }
+
+  /* Page-break hints */
+  #images-section { page-break-before: always; }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="p-6 max-w-7xl mx-auto">
 
@@ -142,13 +171,46 @@
     </div>
 
     <!-- Export -->
-    <div class="flex justify-end">
+    <div class="flex justify-end gap-2 no-print">
+      <button
+        onclick="downloadPDF()"
+        class="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-700 dark:text-red-400 text-sm font-medium rounded-xl transition-colors border border-red-200 dark:border-red-800"
+      >
+        <i data-lucide="file-down" class="w-4 h-4"></i> Download as PDF
+      </button>
       <button
         onclick="exportJSON()"
         class="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-colors"
       >
         <i data-lucide="download" class="w-4 h-4"></i> Export as JSON
       </button>
+    </div>
+
+    <!-- AI Chat -->
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+      <div class="px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
+        <i data-lucide="bot" class="w-4 h-4 text-indigo-500"></i>
+        <h2 class="text-base font-semibold text-gray-900 dark:text-white">Chat with Gemini about this page</h2>
+      </div>
+      <div id="extract-chat-messages" class="p-4 space-y-4 overflow-y-auto" style="min-height:220px;max-height:420px;">
+        <div class="flex gap-2.5 items-end">
+          <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-lg shrink-0">🧠</div>
+          <div class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 max-w-[80%] leading-relaxed">
+            Page content loaded! Ask me anything about this page.
+          </div>
+        </div>
+      </div>
+      <div class="flex gap-2 p-3 border-t border-gray-200 dark:border-gray-800">
+        <input type="text" id="extract-chat-input" autocomplete="off"
+          placeholder="Ask Gemini about this page…"
+          class="flex-1 px-4 py-2.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-300 placeholder-gray-400"
+        />
+        <button id="extract-chat-btn" onclick="sendExtractChat()"
+          class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors shrink-0"
+        >
+          <i data-lucide="send" class="w-4 h-4"></i> Ask
+        </button>
+      </div>
     </div>
 
   </div>
@@ -332,6 +394,83 @@
   // Allow pressing Enter in the URL input
   document.getElementById('url-input').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') runExtract();
+  });
+
+  // ── AI Chat for extracted page ──────────────────────────────────────────
+  function chatEsc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function addChatMsg(role, html) {
+    var chatEl = document.getElementById('extract-chat-messages');
+    var wrap = document.createElement('div');
+    wrap.className = 'flex gap-2.5 items-end' + (role === 'user' ? ' flex-row-reverse' : '');
+    var avatar = '<div class="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0 ' +
+      (role === 'user'
+        ? 'bg-indigo-600 text-white font-bold'
+        : 'bg-indigo-100 dark:bg-indigo-900/40 text-lg') + '">' +
+      (role === 'user' ? 'U' : '🧠') + '</div>';
+    var bubble = '<div class="max-w-[80%] px-4 py-2.5 text-sm leading-relaxed rounded-2xl ' +
+      (role === 'user'
+        ? 'bg-indigo-600 text-white rounded-br-sm'
+        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-bl-sm') + '">' + html + '</div>';
+    wrap.innerHTML = role === 'user' ? bubble + avatar : avatar + bubble;
+    chatEl.appendChild(wrap);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return wrap;
+  }
+
+  function addChatThinking() {
+    return addChatMsg('ai',
+      '<span class="flex gap-1">' +
+        '<span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></span>' +
+        '<span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0.15s"></span>' +
+        '<span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay:0.3s"></span>' +
+      '</span>');
+  }
+
+  async function sendExtractChat() {
+    if (!_lastResult) return;
+    var input = document.getElementById('extract-chat-input');
+    var btn = document.getElementById('extract-chat-btn');
+    var q = input.value.trim();
+    if (!q) return;
+    addChatMsg('user', chatEsc(q));
+    input.value = '';
+    btn.disabled = true;
+    var thinking = addChatThinking();
+    try {
+      var resp = await fetch('/extract-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          page_title: _lastResult.title || '',
+          page_url: _lastResult.url || '',
+          text_content: _lastResult.text_content || ''
+        })
+      });
+      var _text = await resp.text();
+      var data;
+      try { data = JSON.parse(_text); } catch (e) { data = { error: 'Server returned an invalid response.' }; }
+      thinking.remove();
+      if (!resp.ok || data.error) {
+        addChatMsg('ai', '⚠️ ' + chatEsc(data.error || 'Unknown error'));
+        return;
+      }
+      addChatMsg('ai', chatEsc(data.answer || '').replace(/\n/g, '<br>'));
+      lucide.createIcons();
+    } catch (err) {
+      thinking.remove();
+      addChatMsg('ai', '⚠️ Request failed: ' + chatEsc(err.message));
+    } finally {
+      btn.disabled = false;
+      input.focus();
+    }
+  }
+
+  document.getElementById('extract-chat-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendExtractChat(); }
   });
 </script>
 {% endblock %}
